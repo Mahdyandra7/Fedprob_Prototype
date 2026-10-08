@@ -1,0 +1,1 @@
+﻿"""Pemuat data riil."""

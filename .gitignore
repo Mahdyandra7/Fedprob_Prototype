@@ -12,3 +12,6 @@ __pycache__/
 results/*
 !results/.gitkeep
 *.egg-info/
+
+# Data riil mentah (diunduh otomatis oleh src/fedprob/realdata/nn5.py)
+data/raw/

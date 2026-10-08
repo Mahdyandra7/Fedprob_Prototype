@@ -143,3 +143,97 @@ def aci(
                 out[k, h, i] -= Q
                 out[k, h, j] += Q
     return _finalize(out)
+
+
+def aci_upper_pooled(
+    val_y,
+    val_q,
+    val_origins,
+    test_y,
+    test_q,
+    test_origins,
+    level: float,
+    gamma: float = 0.01,
+    window_days: int = 56,
+) -> np.ndarray:
+    """ACI satu sisi dengan skor **dikumpulkan dari banyak seri** milik satu pihak
+    (mis. semua ATM satu bank). Data tetap di dalam bank, tetapi sampel kalibrasinya
+    jauh lebih banyak dibanding ACI per seri, sehingga kuantil tinggi (95-99%) bisa
+    diestimasi. Satu alpha per (bank, horizon) diperbarui dengan rata-rata kejadian
+    meleset dari semua seri yang terbukti pada hari itu.
+
+    val_y/val_q: (S, n_val, H); test_y/test_q: (S, n_test, H). Origin sama untuk semua seri.
+    Kembalian: (S, n_test, H).
+    """
+    S, n_test, H = test_q.shape
+    origins = np.concatenate([val_origins, test_origins])
+    scores = np.concatenate([val_y, test_y], axis=1) - np.concatenate([val_q, test_q], axis=1)  # (S, n, H)
+    n_val = len(val_origins)
+    target = 1 - level
+    out = test_q.astype(np.float64).copy()
+    for h in range(H):
+        resolve_day = origins + h + 1
+        alpha, Q_used = target, {}
+        for k, t in enumerate(test_origins):
+            # perbarui alpha dengan forecast uji yang terbukti tepat pada hari ini
+            for idx in np.flatnonzero(resolve_day == t):
+                if idx >= n_val and (idx - n_val) in Q_used:
+                    miss = float((scores[:, idx, h] > Q_used[idx - n_val]).mean())
+                    alpha += gamma * (target - miss)
+            sel = (resolve_day <= t) & (resolve_day > t - window_days)
+            recent = scores[:, sel, h].ravel()
+            if len(recent) == 0:
+                Q = 0.0
+            elif alpha <= 0:
+                Q = float(np.max(recent)) * 1.5
+            else:
+                Q = _conformal_quantile(recent, min(1 - alpha, 1.0))
+            Q_used[k] = Q
+            out[:, k, h] += Q
+    return out.astype(np.float32)
+
+
+def aci_upper(
+    val_y,
+    val_q,
+    val_origins,
+    test_y,
+    test_q,
+    test_origins,
+    level: float,
+    gamma: float = 0.01,
+    window: int = 30,
+) -> np.ndarray:
+    """ACI **satu sisi** untuk satu kuantil atas (mis. q95): menjamin P(y <= q) ~ `level`.
+
+    Cocok untuk keputusan persediaan/kas: yang berbahaya hanya permintaan melebihi stok.
+    Skor = y - q (positif = melebihi). Pada origin t hanya skor yang sudah terbukti
+    (o + h <= t) yang dipakai; alpha diperbarui online seperti `aci`.
+    val_q/test_q: (n, H) -> kembalian (n_test, H) kuantil yang sudah disesuaikan.
+    """
+    H = test_q.shape[1]
+    origins = np.concatenate([val_origins, test_origins])
+    scores = np.concatenate([val_y, test_y]) - np.concatenate([val_q, test_q])
+    n_val = len(val_origins)
+    target = 1 - level
+    out = test_q.astype(np.float64).copy()
+    for h in range(H):
+        resolve_day = origins + h + 1
+        order = np.argsort(resolve_day, kind="stable")
+        alpha, ptr, Q_used = target, 0, {}
+        for k, t in enumerate(test_origins):
+            while ptr < len(order) and resolve_day[order[ptr]] <= t:
+                idx = order[ptr]
+                if idx >= n_val and (idx - n_val) in Q_used:
+                    alpha += gamma * (target - float(scores[idx, h] > Q_used[idx - n_val]))
+                ptr += 1
+            recent = scores[resolve_day <= t, h][-window:]
+            if len(recent) == 0:
+                Q = 0.0
+            elif alpha <= 0:
+                Q = float(np.max(recent)) * 1.5
+            else:
+                Q = _conformal_quantile(recent, min(1 - alpha, 1.0))
+            Q_used[k] = Q
+            out[k, h] += Q
+    return out.astype(np.float32)

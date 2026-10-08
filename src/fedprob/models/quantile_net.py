@@ -24,16 +24,21 @@ class QuantileMLP(nn.Module):
         quantiles=QUANTILES,
         hidden: int = 128,
         dropout: float = 0.1,
+        residual: bool = True,
     ):
+        """residual=True: median diprediksi relatif terhadap nilai terakhir (target level).
+        residual=False: target berdiri sendiri (mis. jumlah kumulatif); nilai terakhir
+        ikut menjadi input agar model tahu level saat ini."""
         super().__init__()
         self.horizon = horizon
+        self.residual = residual
         self.quantiles = tuple(quantiles)
         q = torch.tensor(self.quantiles)
         self.register_buffer("q", q)
         self.mid = int(torch.argmin((q - 0.5).abs()))
         self.n_q = len(self.quantiles)
         self.net = nn.Sequential(
-            nn.Linear(lookback + horizon * n_cal, hidden),
+            nn.Linear(lookback + horizon * n_cal + (0 if residual else 1), hidden),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden, hidden),
@@ -45,10 +50,10 @@ class QuantileMLP(nn.Module):
     def forward(self, x_hist: torch.Tensor, x_cal: torch.Tensor) -> torch.Tensor:
         # Prediksi relatif terhadap nilai terakhir -> lebih mudah dipelajari
         last = x_hist[:, -1:]
-        x = torch.cat([x_hist - last, x_cal.flatten(1)], dim=1)
-        raw = self.net(x).view(-1, self.horizon, self.n_q)
+        parts = [x_hist - last, x_cal.flatten(1)] + ([] if self.residual else [last])
+        raw = self.net(torch.cat(parts, dim=1)).view(-1, self.horizon, self.n_q)
 
-        median = raw[..., self.mid] + last
+        median = raw[..., self.mid] + (last if self.residual else 0)
         up = F.softplus(raw[..., self.mid + 1:]).cumsum(-1)
         down = F.softplus(raw[..., : self.mid].flip(-1)).cumsum(-1).flip(-1)
         return torch.cat(
