@@ -52,4 +52,5 @@ streamlit run app/dashboard.py
 
 ## Lingkungan
 Windows, Python 3.14 (venv `.venv`), GPU GTX 1650 (tidak wajib; model kecil, CPU cukup).
-GitHub CLI (`gh`) tidak terpasang. Push memakai git biasa ke remote `origin`.
+GitHub CLI (`gh`) tidak terpasang. Push memakai git biasa ke remote `origin` =
+https://github.com/Mahdyandra7/Fedprob_Prototype (branch `main`). Setelah tiap tahap: update PROGRESS.md, commit, `git push`.

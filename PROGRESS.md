@@ -48,7 +48,7 @@ Temuan:
    Rata-rata 3 seed mendekati 77–80%. Bandingkan model terhadap Oracle, bukan hanya terhadap nominal.
 
 **Berikutnya (kandidat, urut prioritas)**
-- [ ] Hubungkan repo ke GitHub (menunggu URL repo dari pemilik)
+- [x] Repo terhubung ke GitHub: https://github.com/Mahdyandra7/Fedprob_Prototype
 - [ ] Conformal prediction (mis. adaptive conformal) untuk memperbaiki coverage saat shock
 - [ ] Coba FedProx dengan mu lebih besar / clustered FL untuk skenario heterogen
 - [ ] Diffusion model untuk generasi skenario / stress testing (arah riset ke-2)
