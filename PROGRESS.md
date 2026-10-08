@@ -39,7 +39,11 @@ mingguan, termasuk Natal & Paskah).
 - Bank baru (Zeta), target 95%: Local 35.3% kehabisan vs FedProx 3.3%.
 
 **Langkah berikutnya saat dilanjutkan:**
-1. Jalankan `run_atm_case_cached(cache_dir='results')` (~15 menit; versi cache 2) dan cek `res.system == 'fedavg+aci'`.
+1. Jalankan `run_atm_case_cached(cache_dir='results')` (versi cache 2) dan cek `res.system == 'fedavg+aci'`.
+   **Perhatian:** percobaan pertama run final terhenti di batas 1 jam pada tahap Clustered FL, padahal run
+   pertama (versi 1) selesai ~16 menit. Cek dulu kenapa lambat (proses lain memakai CPU? Clustered FL?).
+   Jalankan sendirian, dengan `python -u` agar log langsung terlihat. Cache `results/atm_7623bd036b2b.pkl`
+   adalah versi 1 (ACI per ATM), bukan hasil final.
 2. `python scripts/build_notebooks.py`, lalu eksekusi notebook 09–11; perbaiki error bila ada.
 3. Smoke test `app/kaspintar.py` (AppTest) dan jalankan `streamlit run app/kaspintar.py`.
 4. Tulis `docs/kasus_atm.md`, gambar `docs/figures/kasus_*`, perbarui `docs/alur_presentasi.md` agar berpusat
