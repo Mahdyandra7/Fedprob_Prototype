@@ -51,7 +51,7 @@ with st.sidebar:
         default=["oracle", "ets", "local", "fedavg", "fedprox", "fedavg_ft", "central"],
         format_func=lambda m: METHOD_LABELS[m],
     )
-    run = st.button("Jalankan eksperimen", type="primary", use_container_width=True)
+    run = st.button("Jalankan eksperimen", type="primary", width="stretch")
 
 cfg = get_scenario(scenario, alpha=alpha, n_banks=n_banks, seed=int(seed))
 fed_cfg = FedConfig(rounds=rounds, local_epochs=local_epochs)
@@ -89,7 +89,7 @@ with tab_data:
     c1, c2 = st.columns([3, 1])
     with c1:
         norm = st.toggle("Tampilkan ternormalisasi (per bank)", value=False)
-        st.plotly_chart(plotly_series(sim, normalize=norm), use_container_width=True)
+        st.plotly_chart(plotly_series(sim, normalize=norm), width="stretch")
     with c2:
         st.dataframe(
             pd.DataFrame(
@@ -100,7 +100,7 @@ with tab_data:
                 }
             ),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
     st.info(
         "Data ini **buatan** (simulasi), sehingga distribusi sebenarnya diketahui. "
@@ -116,7 +116,7 @@ with tab_fc:
     client = res.clients[bank]
     for m in shown:
         fig = plotly_fan(sim, bank, res.pred_original_scale(m, bank), client.test.origins, title=METHOD_LABELS[m])
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         row = res.metrics.query("method == @m and bank == @client.name").iloc[0]
         st.caption(
             f"CRPS {row.CRPS:.3f} · MAE {row.MAE:.3f} · coverage 80% = {row.Coverage80:.0%} "
@@ -133,7 +133,7 @@ with tab_metric:
     st.dataframe(
         summary.style.format({c: "{:.3f}" for c in summary.columns if not c.startswith("Coverage")})
         .format({c: "{:.0%}" for c in summary.columns if c.startswith("Coverage")}),
-        use_container_width=True,
+        width="stretch",
     )
     metric = st.radio("Metrik per bank", ["CRPS", "MAE", "Coverage80", "Lebar80"], horizontal=True)
     pivot = res.metrics.pivot(index="bank", columns="method", values=metric)[methods_run].rename(columns=METHOD_LABELS)
@@ -149,7 +149,7 @@ with tab_metric:
         rel = reliability(y, q)
         fig.add_trace(go.Scatter(x=rel.nominal, y=rel.observed, mode="lines+markers", name=METHOD_LABELS[m]))
     fig.update_layout(xaxis_title="kuantil nominal", yaxis_title="proporsi aktual <= prediksi", height=420)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ---------------------------------------------------------------- tab 4
 with tab_fed:
@@ -162,7 +162,7 @@ with tab_fed:
             "bank mengirim **bobot** (bukan data) -> server merata-ratakan. Kurva di bawah adalah loss "
             "validasi model global per ronde."
         )
-        st.plotly_chart(plotly_history(fed_hist), use_container_width=True)
+        st.plotly_chart(plotly_history(fed_hist), width="stretch")
         which = st.selectbox("Loss validasi per bank untuk", list(fed_hist))
         per_bank = pd.DataFrame(fed_hist[which]).set_index("round").filter(like="val_Bank")
         st.line_chart(per_bank.rename(columns=lambda c: c.removeprefix("val_")), height=350)
