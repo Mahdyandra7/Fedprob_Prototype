@@ -273,7 +273,7 @@ NOTEBOOKS["04_federated"] = [
 """),
     code(SETUP),
     code("""
-from fedprob.experiment import run_experiment_cached, METHOD_LABELS
+from fedprob.experiment import run_experiment_cached, method_label
 from fedprob.plots import plot_fan, plot_history, plot_metric_bars, plot_reliability
 from fedprob.metrics import reliability
 
@@ -291,12 +291,12 @@ plot_metric_bars(res.metrics, "CRPS", methods=["ets", "local", "fedavg", "fedavg
 k = 6; c = res.clients[k]
 fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
 for ax, m in zip(axes, ["local", "fedavg"]):
-    plot_fan(res.sim, k, res.pred_original_scale(m, k), c.test.origins, ax=ax, title=f"{c.name}: {METHOD_LABELS[m]}")
+    plot_fan(res.sim, k, res.pred_original_scale(m, k), c.test.origins, ax=ax, title=f"{c.name}: {method_label(m)}")
 plt.tight_layout()
 """),
     code("""
 y = np.concatenate([c.test.y for c in res.clients])
-plot_reliability({METHOD_LABELS[m]: reliability(y, np.concatenate(res.preds[m]))
+plot_reliability({method_label(m): reliability(y, np.concatenate(res.preds[m]))
                   for m in ["ets", "local", "fedavg", "central"]})
 """),
     md("""
@@ -318,23 +318,23 @@ Hasil di-cache ke `results/`, jadi eksekusi kedua berjalan cepat.
     code(SETUP),
     code("""
 from fedprob.data import SCENARIOS, get_scenario
-from fedprob.experiment import run_experiment_cached, METHOD_LABELS
+from fedprob.experiment import run_experiment_cached, method_label
 from fedprob.plots import plot_fan
 
-MAIN = ["ets", "local", "fedavg", "fedprox", "fedavg_ft", "central", "oracle"]
+MAIN = ["ets", "local", "fedavg", "fedprox", "fedavg_ft", "clustered", "fedavg+aci", "central", "oracle"]
 results = {s: run_experiment_cached(s, cache_dir="../results", verbose=False) for s in SCENARIOS}
 """),
     md("## Ringkasan CRPS (rata-rata semua bank, lebih kecil lebih baik)"),
     code("""
 crps = pd.DataFrame({s: r.summary()["CRPS"] for s, r in results.items()}).loc[MAIN]
 # Sorot metode realistis terbaik (tanpa Oracle & Centralized, yang tidak bisa dicapai di dunia nyata)
-realistic = [METHOD_LABELS[m] for m in MAIN if m not in ("oracle", "central")]
-crps.rename(index=METHOD_LABELS).style.format("{:.3f}").highlight_min(axis=0, subset=pd.IndexSlice[realistic, :], color="#cde7cd")
+realistic = [method_label(m) for m in MAIN if m not in ("oracle", "central")]
+crps.rename(index=method_label).style.format("{:.3f}").highlight_min(axis=0, subset=pd.IndexSlice[realistic, :], color="#cde7cd")
 """),
     md("## Coverage interval 80% (ideal ≈ 0.80)"),
     code("""
 cov = pd.DataFrame({s: r.summary()["Coverage80"] for s, r in results.items()}).loc[MAIN]
-cov.rename(index=METHOD_LABELS).style.format("{:.0%}")
+cov.rename(index=method_label).style.format("{:.0%}")
 """),
     md("""
 ## Fokus: bank kecil pada skenario `data_langka`
@@ -348,7 +348,7 @@ m[m.method.isin(["local", "fedavg", "fedavg_ft", "central"])].pivot(index="bank"
 r = results["data_langka"]; k = 7; c = r.clients[k]
 fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
 for ax, meth in zip(axes, ["local", "fedavg_ft"]):
-    plot_fan(r.sim, k, r.pred_original_scale(meth, k), c.test.origins, ax=ax, title=f"{c.name}: {METHOD_LABELS[meth]}")
+    plot_fan(r.sim, k, r.pred_original_scale(meth, k), c.test.origins, ax=ax, title=f"{c.name}: {method_label(meth)}")
 plt.tight_layout()
 """),
     md("## Skenario shock: apakah model tetap jujur saat terjadi guncangan?"),
@@ -356,7 +356,7 @@ plt.tight_layout()
 r = results["shock"]; k = 5; c = r.clients[k]
 fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
 for ax, meth in zip(axes, ["fedavg", "oracle"]):
-    plot_fan(r.sim, k, r.pred_original_scale(meth, k), c.test.origins, ax=ax, title=f"{c.name}: {METHOD_LABELS[meth]}")
+    plot_fan(r.sim, k, r.pred_original_scale(meth, k), c.test.origins, ax=ax, title=f"{c.name}: {method_label(meth)}")
 plt.tight_layout()
 """),
     md("""
@@ -378,7 +378,7 @@ seeds_df.groupby(["kelompok", "method"])[["CRPS", "Coverage80"]].agg(["mean", "s
 """),
     code("""
 pivot = seeds_df.groupby(["kelompok", "method"])["CRPS"].mean().unstack()[FOCUS]
-ax = pivot.rename(columns=METHOD_LABELS).plot.bar(figsize=(9, 4), rot=0)
+ax = pivot.rename(columns=method_label).plot.bar(figsize=(9, 4), rot=0)
 ax.set_ylabel("CRPS rata-rata (3 seed)"); ax.set_title("Siapa yang paling diuntungkan federated learning?")
 """),
     md("## Sweep heterogenitas (alpha)"),
@@ -386,36 +386,329 @@ ax.set_ylabel("CRPS rata-rata (3 seed)"); ax.set_title("Siapa yang paling diuntu
 alphas = [0.0, 0.3, 0.6, 0.9]
 sweep = []
 for a in alphas:
-    r = run_experiment_cached(get_scenario("normal", alpha=a), methods=("local", "fedavg", "fedprox", "fedavg_ft", "central"),
+    r = run_experiment_cached(get_scenario("normal", alpha=a), methods=("local", "fedavg", "fedprox", "fedavg_ft", "clustered", "central"),
                               cache_dir="../results", verbose=False)
     sweep.append(r.summary()["CRPS"].rename(a))
 sweep = pd.DataFrame(sweep)
-ax = sweep.rename(columns=METHOD_LABELS).plot(marker="o", figsize=(8, 4))
+ax = sweep.rename(columns=method_label).plot(marker="o", figsize=(8, 4))
 ax.set_xlabel("alpha (heterogenitas)"); ax.set_ylabel("CRPS rata-rata"); ax.set_title("Pengaruh heterogenitas data antar bank")
 sweep
 """),
     md("""
-## Kesimpulan sementara
-*(Berdasarkan eksekusi 2026-10-08; angka pasti lihat tabel di atas dan `PROGRESS.md`.)*
+## Kesimpulan
+*(Berdasarkan eksekusi 2026-10-08; angka lengkap lihat tabel di atas dan `PROGRESS.md`.)*
 
 1. **Federated learning paling menolong bank dengan data sedikit.** Pada `data_langka` (rata-rata 3 seed),
    CRPS bank kecil turun dari ~0.215 (Local) ke ~0.156 (FedAvg), **sekitar 27% lebih baik**, dan setara
    Centralized (~0.154) **tanpa satu pun data dibagikan**. Interval model lokal terlalu lebar (coverage 96%);
    federasi membuatnya lebih tajam dan tetap terkalibrasi (~84%).
-2. **Bank dengan data banyak hampir tidak diuntungkan.** Pada skenario `normal`, Local ≈ FedAvg ≈ Centralized.
-   Data yang cukup sudah memadai untuk proses sesederhana ini.
-3. **Heterogenitas (non-IID) melemahkan FedAvg.** Saat alpha naik, CRPS FedAvg memburuk, dan
-   **personalisasi (fine-tune lokal)** memulihkan sebagian besar kerugian. FedProx belum memberi
-   perbaikan berarti di sini.
-4. **Semua model gagal saat shock.** Coverage 80% anjlok ke ~40%: model yang belajar dari data
-   "normal" menjadi **terlalu percaya diri** ketika dunia berubah. Ini menjawab langsung pertanyaan
-   riset tentang model yang *jujur soal ketidakpastian* dan menjadi motivasi tahap berikutnya.
+2. **Bank dengan data banyak hampir tidak diuntungkan** dari FedAvg biasa: pada `normal`, Local ≈ FedAvg ≈ Centralized.
+3. **FedProx (mu = 0.1) adalah metode realistis terbaik** di `normal`, `data_langka`, dan `bank_baru`, dengan coverage
+   mendekati 80%. Penalti proksimal berfungsi sebagai regularisasi.
+4. **Heterogenitas melemahkan FedAvg.** Saat alpha naik, CRPS FedAvg memburuk; **fine-tune lokal** paling
+   konsisten memulihkannya. Bila heterogenitasnya berbentuk **kelompok** (`klaster`), **Clustered FL** terbaik
+   (lihat notebook 07).
+5. **Semua model gagal saat shock** (coverage 80% ≈ 40%): model menjadi *terlalu percaya diri* ketika dunia berubah.
+   **ACI** (notebook 06) mengembalikan coverage ke ~81% di keenam skenario, termasuk shock.
 
-## Langkah riset berikutnya
-1. **Diffusion model** untuk membangkitkan skenario masa depan (arah riset ke-2 di essay).
-2. Model global yang lebih kuat (Transformer/TFT, DeepAR) dan forecast konformal untuk menjamin coverage.
-3. Privasi formal: *differential privacy* dan *secure aggregation* pada FedAvg.
-4. Validasi pada data riil publik, misalnya data perbankan agregat per provinsi.
+## Pendalaman
+- Notebook 06: conformal prediction (CQR & ACI)
+- Notebook 07: FedProx & Clustered FL untuk data non-IID
+- Notebook 08: diffusion model untuk skenario jalur & stress testing
+"""),
+]
+
+
+# ---------------------------------------------------------------------------
+NOTEBOOKS["06_conformal"] = [
+    md("""
+# 06 · Conformal Prediction: Membuat Interval Tetap Jujur
+
+Notebook 05 menunjukkan bahwa saat **shock**, coverage interval 80% semua model anjlok ke ~40%.
+Model menjadi *terlalu percaya diri* tepat ketika ketidakpastian paling penting.
+
+**Conformal prediction** memperbaiki interval *setelah* model dilatih, hanya dengan melihat seberapa
+sering interval meleset:
+
+| Metode | Cara kerja | Kalibrasi pada |
+|---|---|---|
+| **CQR** (Romano dkk., 2019) | lebarkan/sempitkan interval sebesar kuantil skor meleset | data validasi (statik) |
+| **ACI** (Gibbs & Candès, 2021) | setiap forecast yang terbukti meleset → interval berikutnya melebar | jendela 30 forecast terbaru (online) |
+
+Skor kesesuaian untuk interval (lo, hi): $s = \\max(lo - y,\\; y - hi)$. Nilai positif berarti meleset.
+
+**Privasi:** kalibrasi dilakukan **lokal di tiap bank**, sehingga skor tidak pernah dikirim ke server.
+Conformal bisa langsung dipasang di atas model federated mana pun.
+"""),
+    code(SETUP),
+    code("""
+from fedprob.conformal import aci, cqr, online_bias_shift
+from fedprob.experiment import run_experiment_cached, method_label
+from fedprob.metrics import evaluate
+from fedprob.plots import plot_fan
+
+SC = ["normal", "data_langka", "shock"]
+results = {s: run_experiment_cached(s, cache_dir="../results", verbose=False) for s in SC}
+M = ["fedavg", "fedavg+cqr", "fedavg+aci", "oracle"]
+tab = pd.concat({s: r.summary().loc[M, ["CRPS", "Coverage80", "Coverage90", "Lebar80"]] for s, r in results.items()}, axis=1)
+tab.rename(index=method_label)
+"""),
+    md("""
+**Cara membaca:**
+- **ACI** membawa coverage 80% ke ~81% di **semua** skenario. CRPS hanya sedikit berubah pada kondisi normal.
+- Pada `shock`, **ACI memulihkan coverage 80% dari ~40% ke ~81%**. Interval menjadi jauh lebih lebar, dan
+  itulah sikap yang *jujur*: model mengakui bahwa ia sedang tidak yakin. CRPS sedikit memburuk karena pusat
+  prediksinya tetap salah.
+- **CQR statik hampir tidak membantu**, bahkan menurunkan coverage pada `data_langka` (73% → 69%). Kalibrasinya
+  memakai periode validasi, yang perilakunya berbeda dari periode uji: perubahan periode inilah yang tidak bisa
+  ditangani metode statik.
+"""),
+    code("""
+r = results["shock"]; k = 5; c = r.clients[k]
+fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
+for ax, m in zip(axes, ["fedavg", "fedavg+aci"]):
+    plot_fan(r.sim, k, r.pred_original_scale(m, k), c.test.origins, ax=ax, title=f"{c.name} (shock): {method_label(m)}")
+plt.tight_layout()
+"""),
+    md("""
+## Coverage dari waktu ke waktu
+Coverage bergulir (rata-rata 7 origin) untuk interval 80%, semua bank. Garis putus-putus = target 80%.
+"""),
+    code("""
+def rolling_cov(r, m, w=7):
+    inside = []
+    for c, p in zip(r.clients, r.preds[m]):
+        inside.append(((c.test.y >= p[..., 1]) & (c.test.y <= p[..., 5])).mean(axis=1))
+    return pd.Series(np.mean(inside, axis=0), index=r.sim.dates[r.clients[0].test.origins]).rolling(w, min_periods=1).mean()
+
+fig, ax = plt.subplots(figsize=(11, 3.5))
+for m in ["fedavg", "fedavg+cqr", "fedavg+aci"]:
+    rolling_cov(results["shock"], m).plot(ax=ax, label=method_label(m))
+ax.axhline(0.8, color="grey", ls="--"); ax.set_ylim(0, 1.05); ax.set_ylabel("coverage 80%")
+ax.set_title("Skenario shock: ACI bereaksi setelah interval mulai meleset"); ax.legend(fontsize=8)
+"""),
+    md("""
+## Sensitivitas ACI terhadap gamma & window
+`gamma` = seberapa cepat alpha bereaksi; `window` = berapa banyak skor terbaru yang dipakai.
+"""),
+    code("""
+rows = []
+for s in ["normal", "shock"]:
+    r = results[s]
+    for g in [0.005, 0.01, 0.02, 0.05]:
+        for w in [30, 60]:
+            ev = [evaluate(c.test.y, aci(c.val.y, pv, c.val.origins, c.test.y, pt, c.test.origins, gamma=g, window=w))
+                  for c, pv, pt in zip(r.clients, r.preds_val["fedavg"], r.preds["fedavg"])]
+            rows.append({"skenario": s, "gamma": g, "window": w, **pd.DataFrame(ev).mean()[["CRPS", "Coverage80", "Lebar80"]]})
+pd.DataFrame(rows).pivot_table(index=["gamma", "window"], columns="skenario", values=["CRPS", "Coverage80"])
+"""),
+    md("""
+## Hasil negatif: koreksi bias online
+Ide: selain melebarkan interval, geser juga *pusat* prediksi sebesar median residual terbaru.
+Hasilnya ternyata **lebih buruk** di semua skenario. Shock berbentuk "V", sehingga residual lama justru
+mendorong prediksi ke arah yang salah saat data sudah pulih. Pada kondisi normal, model sendiri sudah
+memakai data terbaru, jadi koreksi tambahan hanya menambah noise. Hasil negatif ini tetap dicatat.
+"""),
+    code("""
+rows = []
+for s in ["normal", "shock"]:
+    r = results[s]
+    for bw in [None, 14, 28]:
+        ev = [evaluate(c.test.y, aci(c.val.y, pv, c.val.origins, c.test.y, pt, c.test.origins, bias_window=bw))
+              for c, pv, pt in zip(r.clients, r.preds_val["fedavg"], r.preds["fedavg"])]
+        rows.append({"skenario": s, "koreksi bias": bw or "tanpa", **pd.DataFrame(ev).mean()[["MAE", "CRPS", "Coverage80"]]})
+pd.DataFrame(rows).set_index(["skenario", "koreksi bias"])
+"""),
+    md("""
+## Kesimpulan
+- Conformal prediction adalah lapisan "kejujuran" yang murah, bisa dipasang di atas model apa pun, dan
+  **tetap menjaga privasi** karena kalibrasinya lokal.
+- **ACI** adalah satu-satunya metode di prototipe ini yang tetap terkalibrasi saat shock.
+- Batasannya: conformal hanya memperbaiki **lebar** interval, bukan **akurasi** pusatnya. Untuk forecast yang
+  akurat saat rezim berubah, dibutuhkan model yang bisa beradaptasi atau membangkitkan skenario (notebook 08).
+"""),
+]
+
+# ---------------------------------------------------------------------------
+NOTEBOOKS["07_heterogenitas"] = [
+    md("""
+# 07 · Mengatasi Heterogenitas: FedProx & Clustered FL
+
+Notebook 05 menunjukkan bahwa saat pola antar bank berbeda (non-IID), satu model global (FedAvg) memburuk.
+Tiga strategi yang dibandingkan di sini, semuanya **tanpa berbagi data**:
+
+1. **FedProx**: penalti $\\frac{\\mu}{2}\\lVert w - w_{global}\\rVert^2$ agar model lokal tidak menjauh dari model global.
+2. **Personalisasi (fine-tune)**: model global disesuaikan sedikit ke tiap bank.
+3. **Clustered FL** (Sattler dkk., 2020): server mengelompokkan bank berdasarkan **kemiripan arah update bobot**,
+   lalu melatih satu model per kelompok.
+
+Skenario baru **`klaster`** berisi dua kelompok bank (misalnya ritel vs korporat). Kelompok 0 punya efek
+gajian kuat, sedangkan kelompok 1 tidak punya efek gajian tetapi efek Lebarannya dua kali lebih kuat.
+"""),
+    code(SETUP),
+    code("""
+from fedprob.data import get_scenario, simulate
+from fedprob.experiment import run_experiment_cached, method_label
+from fedprob.plots import plot_series
+
+sim = simulate(get_scenario("klaster"))
+pd.DataFrame([{ "bank": b.name, "kelompok": b.group, "gajian": b.payday_amp, "lebaran": b.lebaran_amp,
+                "pola mingguan": np.round(b.weekly, 1)} for b in sim.banks])
+"""),
+    code("""
+fig, ax = plt.subplots(figsize=(12, 3.5))
+s = slice(sim.dates.get_loc("2024-03-01"), sim.dates.get_loc("2024-05-15"))
+for k in [0, 1]:
+    y = sim.y[:, k]; ax.plot(sim.dates[s], (y[s] - y[s].mean()) / y[s].std(), label=f"{sim.banks[k].name} (kelompok {sim.banks[k].group})")
+ax.axvline(pd.Timestamp("2024-04-10"), color="red", ls=":", label="Lebaran")
+ax.set_title("Dua kelompok bank berpola berbeda"); ax.legend(fontsize=8)
+"""),
+    md("## Apakah server bisa menemukan kelompok tanpa melihat data?"),
+    code("""
+res = {s: run_experiment_cached(s, cache_dir="../results", verbose=False) for s in ["normal", "heterogen", "klaster"]}
+for s, r in res.items():
+    print(f"{s:10s} klaster ditemukan: {r.extras['cluster_labels']}   kelompok sebenarnya: {[b.group for b in r.sim.banks]}")
+"""),
+    code("""
+r = res["klaster"]
+fig, ax = plt.subplots(figsize=(5.5, 4.5))
+im = ax.imshow(r.extras["cluster_similarity"], cmap="Blues", vmin=-1, vmax=1)
+names = [b.name for b in r.sim.banks]
+ax.set_xticks(range(8), names, rotation=45); ax.set_yticks(range(8), names)
+ax.set_title("Cosine similarity update bobot antar bank"); plt.colorbar(im)
+"""),
+    md("""
+Pada `klaster`, bank genap (A, C, E, G) dan ganjil (B, D, F, H) jelas membentuk dua blok. Server menemukan
+kelompok yang **tepat** hanya dari update bobot. Pada `normal` dan `heterogen` tidak ada struktur kelompok
+(silhouette < 0.3), sehingga Clustered FL dengan benar kembali menjadi FedAvg biasa.
+"""),
+    md("## Perbandingan CRPS"),
+    code("""
+M = ["local", "fedavg", "fedprox", "fedavg_ft", "clustered", "central", "oracle"]
+pd.DataFrame({s: r.summary().loc[M, "CRPS"] for s, r in res.items()}).rename(index=method_label).style.format("{:.3f}").highlight_min(axis=0, subset=pd.IndexSlice[[method_label(m) for m in M[:-2]], :], color="#cde7cd")
+"""),
+    md("## Sensitivitas FedProx terhadap mu"),
+    code("""
+rows = []
+for s in ["normal", "heterogen", "klaster"]:
+    for mu in [0.01, 0.1, 1.0]:
+        r = run_experiment_cached(s, methods=("fedprox",), fedprox_mu=mu, cache_dir="../results", verbose=False)
+        rows.append({"skenario": s, "mu": mu, **r.summary().loc["fedprox", ["CRPS", "Coverage80", "Lebar80"]]})
+pd.DataFrame(rows).pivot_table(index="mu", columns="skenario", values=["CRPS", "Coverage80"])
+"""),
+    md("""
+## Kesimpulan
+- **Clustered FL** menemukan struktur kelompok yang sebenarnya hanya dari update bobot, dan pada `klaster`
+  mengalahkan FedAvg maupun Local. Bila tidak ada struktur, ia otomatis kembali menjadi FedAvg.
+- **Fine-tune lokal** adalah cara paling sederhana dan konsisten untuk menangani heterogenitas acak (`heterogen`).
+- **FedProx** sensitif terhadap mu: mu=0.1 sedikit membantu, sedangkan mu=1.0 terlalu mengekang (CRPS buruk,
+  interval terlalu lebar).
+"""),
+]
+
+# ---------------------------------------------------------------------------
+NOTEBOOKS["08_diffusion"] = [
+    md("""
+# 08 · Diffusion Model: Membangkitkan Skenario Masa Depan
+
+Model kuantil memberi rentang **per hari**. Banyak pertanyaan risiko justru menyangkut **seluruh jalur**:
+
+> *"Berapa peluang saldo turun lebih dari 5% **kapan pun** dalam 14 hari ke depan?"*
+> *"Seberapa rendah titik terendah saldo pada 5% skenario terburuk?"*
+
+Untuk itu dibutuhkan model yang membangkitkan **jalur lengkap**, yaitu model generatif. Di sini dipakai
+**DDPM bersyarat** (Ho dkk., 2020; mirip TimeGrad/CSDI):
+
+1. **Training:** jalur masa depan asli diberi noise sebanyak *k* langkah, lalu jaringan belajar menebak noise
+   itu dengan syarat histori dan kalender.
+2. **Sampling:** mulai dari noise murni, lalu dibersihkan 50 langkah, dan diulang 200 kali sehingga
+   menghasilkan 200 skenario.
+
+Model ini juga dilatih secara **federated**: arah riset ke-2 dan ke-3 di essay digabung menjadi satu.
+
+Dua pelajaran teknis yang ditemukan saat membangun model ini (detail di `PROGRESS.md`):
+- Tanpa **x0-clipping** saat sampling, galat menumpuk dan jalur "melayang" (CRPS memburuk 0.22 → 0.35).
+- *Loss* menebak noise **tidak selaras** dengan kualitas forecast, sehingga epoch/ronde terbaik dipilih
+  dengan pinball loss dari sampel.
+"""),
+    code(SETUP),
+    code("""
+from fedprob.data import oracle_paths
+from fedprob.experiment import run_experiment_cached, method_label
+from fedprob.metrics import independent_paths, path_min_metrics
+from fedprob.plots import plot_fan, plot_history, plot_paths
+
+DM = ("oracle", "fedavg", "local", "diffusion_fed", "diffusion_central", "diffusion_fed+aci")
+res = {s: run_experiment_cached(s, methods=DM, cache_dir="../results", verbose=False) for s in ["normal", "data_langka"]}
+pd.concat({s: r.summary()[["MAE", "CRPS", "Coverage80", "Lebar80"]] for s, r in res.items()}, axis=1).rename(index=method_label)
+"""),
+    code("""
+plot_history({k: v for k, v in res["normal"].histories.items() if k in ("diffusion_fed",)},
+             title="Diffusion federated: pinball loss validasi (dari sampel) per ronde")
+"""),
+    md("## Skenario masa depan dari satu titik waktu"),
+    code("""
+r = res["normal"]; k = 2; c = r.clients[k]
+fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+for ax, oi in zip(axes, [7, 40]):
+    o = int(c.test.origins[oi])
+    plot_paths(r.sim, k, o, c.denorm(r.extras["diffusion_fed_paths"][k][oi]), ax=ax,
+               title=f"{c.name}, origin {r.sim.dates[o].date()}")
+plt.tight_layout()
+"""),
+    md("""
+Setiap garis biru adalah satu skenario yang mungkin. Garis merah adalah **5% skenario terburuk** menurut
+titik terendahnya, bahan untuk *stress testing*. Pola mingguan tetap terlihat di setiap jalur karena model
+mempelajari struktur jalur, bukan hanya rentang per hari.
+"""),
+    md("""
+## Mengapa jalur bersama penting?
+Pembanding: membangkitkan jalur dari model kuantil (FedAvg) dengan **menarik tiap hari secara independen**.
+Distribusi per harinya sama, tetapi keterkaitan antar hari hilang.
+"""),
+    code("""
+rows = []
+for s, r in res.items():
+    for c in r.clients:
+        last = c.test.x_hist[:, -1]
+        orc = np.stack([(oracle_paths(r.sim, c.bank, int(o), 14, 500, seed=int(o)) - c.center) / c.scale for o in c.test.origins])
+        for name, S in [("Oracle", orc),
+                        ("Diffusion (federated)", r.extras["diffusion_fed_paths"][c.bank]),
+                        ("Diffusion (centralized)", r.extras["diffusion_central_paths"][c.bank]),
+                        ("FedAvg kuantil, hari independen", independent_paths(r.preds["fedavg"][c.bank]))]:
+            rows.append({"skenario": s, "metode": name, **path_min_metrics(S, c.test.y, last)})
+path_tab = pd.DataFrame(rows).groupby(["skenario", "metode"], sort=False).mean()
+path_tab
+"""),
+    md("""
+**Cara membaca:**
+- **Coverage80_min**: seberapa sering titik terendah aktual jatuh dalam interval 80% prediksi (ideal ≈ Oracle).
+  Pendekatan "hari independen" jauh di bawah target karena mengabaikan bahwa hari-hari yang berdekatan saling
+  terkait.
+- **Brier_turun** & **P_turun_pred** vs **Frek_turun_aktual**: kualitas peluang "turun > 5%". Bandingkan
+  peluang rata-rata yang diprediksi dengan frekuensi aktual: apakah model meremehkan risiko?
+"""),
+    md("## Skenario stres pada bank dengan data langka"),
+    code("""
+r = res["data_langka"]; k = 6; c = r.clients[k]; oi = 20; o = int(c.test.origins[oi])
+fig, axes = plt.subplots(1, 2, figsize=(14, 4), sharey=True)
+plot_paths(r.sim, k, o, c.denorm(r.extras["diffusion_fed_paths"][k][oi]), ax=axes[0], title=f"{c.name}: Diffusion federated")
+orc = oracle_paths(r.sim, k, o, 14, 100, seed=o)
+plot_paths(r.sim, k, o, orc, ax=axes[1], title=f"{c.name}: Oracle (proses sebenarnya)")
+plt.tight_layout()
+"""),
+    md("""
+## Kesimpulan
+- Forecast per hari: diffusion federated mencapai CRPS **0.190** pada `normal` (FedAvg 0.203, Local 0.195), dan
+  diffusion centralized **0.181** pada `data_langka`. Diffusion sekaligus memberi **jalur skenario lengkap**
+  yang tidak bisa diberikan model kuantil.
+- Pertanyaan tingkat jalur (titik terendah 14 hari): coverage 80% jalur diffusion **69–79%**, sedangkan jalur
+  "hari independen" hanya **48–49%** (Oracle 76%).
+- **Batasan jujur:** diffusion **federated** meremehkan peluang "turun > 5%" (memprediksi 9–10%, aktual 18–20%),
+  sedangkan versi centralized lebih baik (13–14%). Ekor distribusi masih menjadi titik lemah, dan federasi
+  memperberatnya. Model juga tidak pernah melihat shock, sehingga skenario terburuknya belum mencakup
+  krisis yang belum pernah terjadi. Arah lanjutannya adalah *conditional generation* dengan variabel stres
+  eksplisit dan data historis krisis.
 """),
 ]
 
