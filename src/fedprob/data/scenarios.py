@@ -31,6 +31,12 @@ SCENARIOS: dict[str, dict] = {
         # Bank H baru bergabung ~8 bulan sebelum periode validasi
         limited_history={7: 240},
     ),
+    "klaster": dict(
+        alpha=0.15,
+        # dua kelompok bank (genap/ganjil) dengan pola yang sangat berbeda
+        n_groups=2,
+        group_alpha=1.0,
+    ),
 }
 
 SCENARIO_DESCRIPTIONS: dict[str, str] = {
@@ -39,6 +45,7 @@ SCENARIO_DESCRIPTIONS: dict[str, str] = {
     "data_langka": "Bank kecil F, G, H hanya punya ~4 bulan histori.",
     "shock": "Guncangan bersama (penarikan dana besar + volatilitas naik) di periode uji.",
     "bank_baru": "Bank H baru bergabung dengan histori ~8 bulan.",
+    "klaster": "Dua kelompok bank (mis. ritel vs korporat) dengan pola sangat berbeda.",
 }
 
 

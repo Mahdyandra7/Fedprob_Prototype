@@ -50,6 +50,11 @@ class SimConfig:
     val_days: int = 90
     test_days: int = 90
 
+    # Kelompok bank (mis. ritel vs korporat): bank dalam satu kelompok berpola mirip,
+    # antar kelompok berbeda sejauh `group_alpha`. n_groups=1 -> tanpa kelompok.
+    n_groups: int = 1
+    group_alpha: float = 0.0
+
     # Histori terbatas: {indeks bank: jumlah hari histori sebelum periode validasi}
     limited_history: dict[int, int] = field(default_factory=dict)
 
@@ -88,6 +93,7 @@ class BankProfile:
     idio_sd: float
     noise_sd: float
     shock_sens: float
+    group: int = 0
 
 
 @dataclass
@@ -173,29 +179,46 @@ _SIZES = ["besar", "besar", "menengah", "menengah", "menengah", "kecil", "kecil"
 _SCALES = {"besar": 50.0, "menengah": 15.0, "kecil": 3.0}
 
 
+def _draw_groups(cfg: SimConfig) -> list[dict]:
+    """Deviasi parameter tiap kelompok. Memakai RNG terpisah agar skenario tanpa
+    kelompok menghasilkan data yang sama persis seperti sebelumnya."""
+    rng = np.random.default_rng(cfg.seed + 1000)
+    groups = []
+    for g in range(cfg.n_groups):
+        weekly = rng.standard_normal(7)
+        weekly -= weekly.mean()
+        groups.append({"z": rng.standard_normal(4), "weekly": weekly})
+    return groups
+
+
 def _draw_banks(cfg: SimConfig, rng: np.random.Generator) -> list[BankProfile]:
-    a = cfg.alpha
+    a, ga = cfg.alpha, cfg.group_alpha if cfg.n_groups > 1 else 0.0
+    groups = _draw_groups(cfg) if cfg.n_groups > 1 else None
     banks = []
     for k in range(cfg.n_banks):
         size = _SIZES[k % len(_SIZES)]
         z = rng.standard_normal(10)
         own_weekly = rng.standard_normal(7)
         own_weekly -= own_weekly.mean()
+        g = k % cfg.n_groups
+        zg = groups[g]["z"] if groups else np.zeros(4)
+        base_weekly = (1 - ga) * _COMMON_WEEKLY + (ga * 1.5 * groups[g]["weekly"] if groups else 0.0)
         banks.append(
             BankProfile(
                 name=f"Bank {chr(ord('A') + k)}",
                 size=size,
                 scale=_SCALES[size] * float(np.exp(0.2 * rng.standard_normal())),
-                trend=cfg.trend_per_year * (1 + 1.0 * a * z[0]),
-                weekly=cfg.weekly_amp * ((1 - a) * _COMMON_WEEKLY + a * 1.5 * own_weekly),
-                payday_amp=cfg.payday_amp * max(0.0, 1 + a * z[1]),
-                lebaran_amp=cfg.lebaran_amp * max(0.0, 1 + a * z[2]),
-                beta=1 + 0.6 * a * z[3],
+                trend=cfg.trend_per_year * (1 + ga * zg[0] + 1.0 * a * z[0]),
+                weekly=cfg.weekly_amp * ((1 - a) * base_weekly + a * 1.5 * own_weekly),
+                payday_amp=cfg.payday_amp * max(0.0, 1 + ga * zg[1] + a * z[1]),
+                lebaran_amp=cfg.lebaran_amp * max(0.0, 1 + ga * zg[2] + a * z[2]),
+                beta=1 + 0.6 * (ga * zg[3] + a * z[3]),
                 idio_phi=float(np.clip(cfg.idio_phi + 0.08 * a * z[4], 0.5, 0.99)),
                 idio_sd=cfg.idio_sd * float(np.exp(0.4 * a * z[5])),
                 noise_sd=cfg.noise_sd * float(np.exp(0.5 * a * z[6])),
                 # bank kecil cenderung lebih rentan saat shock
                 shock_sens=(1.5 if size == "kecil" else 1.0) * max(0.2, 1 + 0.5 * a * z[7]),
+                group=g,
             )
         )
     return banks
@@ -270,17 +293,25 @@ def oracle_quantiles(
     dengan inovasi acak baru. Ini adalah batas terbaik yang mungkin dicapai model.
     Return: array (horizon, n_quantiles) dalam skala asli.
     """
+    paths = oracle_paths(sim, bank, origin, horizon, n_samples, seed)
+    return np.quantile(paths, quantiles, axis=0).T
+
+
+def oracle_paths(
+    sim: SimulationResult, bank: int, origin: int, horizon: int, n_samples: int = 2000, seed: int = 0
+) -> np.ndarray:
+    """Sampel *jalur* masa depan dari proses sebenarnya: (n_samples, horizon), skala asli.
+    Berguna untuk menilai pertanyaan tingkat-jalur (mis. titik terendah 14 hari)."""
     cfg = sim.config
     b = sim.banks[bank]
     rng = np.random.default_rng(seed)
     m = np.full(n_samples, sim.market[origin])
     i = np.full(n_samples, sim.idio[origin, bank])
-    out = np.empty((horizon, len(quantiles)))
+    out = np.empty((n_samples, horizon))
     for h in range(1, horizon + 1):
         t = origin + h
         m = cfg.market_phi * m + cfg.market_sd * rng.standard_normal(n_samples)
         i = b.idio_phi * i + b.idio_sd * rng.standard_normal(n_samples)
         eps = rng.standard_normal(n_samples)
-        draws = b.scale * (sim.deterministic[t, bank] + b.beta * m + i + b.noise_sd * sim.vol_mult[t] * eps)
-        out[h - 1] = np.quantile(draws, quantiles)
+        out[:, h - 1] = b.scale * (sim.deterministic[t, bank] + b.beta * m + i + b.noise_sd * sim.vol_mult[t] * eps)
     return out
