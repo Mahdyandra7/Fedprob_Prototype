@@ -5,49 +5,46 @@ Setiap sesi baru: baca `CLAUDE.md` lalu entri teratas di sini.
 
 ---
 
-## 2026-10-08 · Tahap 10: Studi kasus data riil "KasPintar" (SEDANG BERJALAN, dijeda)
+## 2026-10-08 · Tahap 10: Studi kasus data riil "KasPintar" (selesai)
 
 **Permintaan pemilik:** untuk wawancara, tampilkan penerapan pada **data riil** sebagai satu kasus end-to-end
-(masalah → alat → hasil), memakai model terbaik saja. Rencana disetujui: kasus **pengisian kas ATM**.
-Detail rencana: lihat bagian "Kasus" di bawah dan `docs/` (belum ditulis).
+(masalah → alat → hasil), memakai model terbaik saja. Kasus: **pengisian kas ATM**. Ringkasan lengkap:
+`docs/kasus_atm.md`; alur presentasi kini berpusat pada kasus ini (`docs/alur_presentasi.md`).
 
-**Kasus:** bank mengisi ATM tiap Senin; isi terlalu sedikit → ATM kosong, terlalu banyak → uang menganggur.
-Pertanyaan: isi berapa agar peluang kehabisan ≤ 5% dengan uang menganggur minimal?
-Data: **NN5** (111 ATM Inggris, harian, 1996-03-18 s/d 1998-05-17, 791 hari), Zenodo 4656110, CC BY 4.0,
-diunduh ke `data/raw/nn5.zip` (di-.gitignore). 111 ATM → 6 bank fiktif (30/30/17/17/9/8); Bank Zeta =
-bank baru (histori 84 hari). Split: val 84 hari (mulai 1997-09-08), uji 168 hari (mulai 1997-12-01, 23 siklus
-mingguan, termasuk Natal & Paskah).
+**Kasus:** bank mengisi ATM tiap Senin; isi berapa agar peluang kehabisan ≤ 5% dengan uang menganggur minimal?
+Data **NN5** (111 ATM Inggris, harian, 1996-03-18 s/d 1998-05-17), Zenodo 4656110, CC BY 4.0, diunduh ke
+`data/raw/nn5.zip` (di-.gitignore). 111 ATM → 6 bank fiktif (30/30/17/17/9/8); Bank Zeta = bank baru (84 hari).
+Val 84 hari (mulai 1997-09-08), uji 168 hari (mulai 1997-12-01, 23 siklus mingguan, Natal & Paskah).
 
-**Sudah dikerjakan (ter-commit):**
-- `realdata/nn5.py` (unduh + MD5, parser .tsf, imputasi hilang/nol 2.4%, hari libur UK, pembagian bank)
-- `data/windows.py` direfactor: `build_series_data` (generik), `target="cumsum"`, `merge_clients`,
-  `calendar_features(event=...)`. Data simulasi terverifikasi **identik** dengan cache lama.
-- `QuantileMLP(residual=False)` untuk target kumulatif.
-- `conformal.aci_upper` (satu sisi per seri) & `aci_upper_pooled` (satu sisi, skor digabung per bank).
-- `cash/policy.py` (aturan praktis, backtest, biaya), `cash/pipeline.py` (`run_atm_case_cached`,
-  seleksi model via CRPS validasi, ACI per bank), `cash/report.py` (laporan Senin, trade-off, plot).
-- `app/kaspintar.py` (dashboard operator kas, 4 tab) -- **belum di-smoke-test**.
-- Notebook 09–11 sudah ada di `scripts/build_notebooks.py` -- **belum dibangkitkan/dieksekusi**.
-- Test: `tests/test_atm.py` (9 test). Total 25 test lolos.
+**Dikerjakan**
+- `realdata/nn5.py`, refactor `data/windows.py` (`build_series_data`, `target="cumsum"`, `merge_clients`;
+  data simulasi terverifikasi identik), `QuantileMLP(residual=False)`, `conformal.aci_upper` & `aci_upper_pooled`.
+- `cash/policy.py`, `cash/pipeline.py` (seleksi model via CRPS validasi, ACI per bank), `cash/report.py`.
+- Notebook 09–11 dieksekusi; `app/kaspintar.py` lolos smoke test (AppTest, 4 tab, tanpa exception).
+- Gambar `docs/figures/kasus_01..05` (`export_figures.py --kasus`), `docs/kasus_atm.md`, alur presentasi
+  ditulis ulang, README (+ atribusi CC BY 4.0) & CLAUDE.md diperbarui. 25 test lolos.
 
-**Hasil sementara (run pertama, sebelum ACI per bank jadi default):**
-- CRPS validasi (total 7 hari): central 0.375, **fedavg 0.379**, clustered 0.384, fedprox_ft 0.391,
-  fedprox 0.402, local 0.426, seasonal naive 0.520 → model terpilih **FedAvg** (beda dengan simulasi: FedProx).
-- Clustered FL: tidak ada kelompok (silhouette 0.14 < 0.3).
-- Backtest target 95%: aturan praktis x1.2 → kehabisan 11.4%, menganggur 21.3%; FedAvg tanpa ACI → 11.0% / 15.2%;
-  **FedAvg + ACI per bank → 5.4% / 20.0%**; ACI per ATM **gagal** (98%: kehabisan naik ke 10–15%, sampel kecil).
-- Bank baru (Zeta), target 95%: Local 35.3% kehabisan vs FedProx 3.3%.
+**Hasil (run final, cache v2, 13.7 menit)**
+- CRPS val/uji: central 0.375/0.366, **fedavg 0.379/0.361 (terpilih)**, clustered 0.384/0.371,
+  fedprox_ft 0.391/0.399, fedprox 0.402/0.416, local 0.426/0.471, seasonal naive 0.520/0.556.
+  Beda dengan simulasi: FedAvg > FedProx. Clustered FL: tidak ada kelompok (silhouette 0.14).
+- Coverage kumulatif 7 hari, target 90/95/98/99%: tanpa ACI 81.5/88.9/94.9/97.1% → ACI per bank
+  89.2/94.3/97.6/98.8%. ACI per ATM gagal (98% → 88.3%).
+- Backtest target 95%: aturan praktis ×1.2 → kehabisan 11.4%, menganggur 21.3%; FedAvg tanpa ACI 11.0/15.2%;
+  **KasPintar (FedAvg+ACI) 5.4/20.0%**; Centralized+ACI 4.8/20.9%. Pada kehabisan sama, aturan praktis butuh
+  ×1.29 dan menganggur 29.3% → KasPintar hemat 32%. Biaya ilustratif 3.49 → 1.70.
+- Minggu 15 Des 1997: aturan praktis 75% ATM kehabisan, KasPintar 6.3%. Minggu >10% kehabisan: 7 / 8 / 3
+  (aturan / FedAvg / KasPintar). Minggu terburuk KasPintar: 16 Mar 1998 (21.6%).
+- Per bank: Zeta CRPS Local 1.592 → FedAvg 0.319 (−80%); Local+ACI di Zeta 3.8% kehabisan tetapi 56% menganggur,
+  KasPintar 5.4% / 21%. Bank Alfa (besar): FedAvg sedikit lebih buruk (−5%).
 
-**Langkah berikutnya saat dilanjutkan:**
-1. Jalankan `run_atm_case_cached(cache_dir='results')` (versi cache 2) dan cek `res.system == 'fedavg+aci'`.
-   **Perhatian:** percobaan pertama run final terhenti di batas 1 jam pada tahap Clustered FL, padahal run
-   pertama (versi 1) selesai ~16 menit. Cek dulu kenapa lambat (proses lain memakai CPU? Clustered FL?).
-   Jalankan sendirian, dengan `python -u` agar log langsung terlihat. Cache `results/atm_7623bd036b2b.pkl`
-   adalah versi 1 (ACI per ATM), bukan hasil final.
-2. `python scripts/build_notebooks.py`, lalu eksekusi notebook 09–11; perbaiki error bila ada.
-3. Smoke test `app/kaspintar.py` (AppTest) dan jalankan `streamlit run app/kaspintar.py`.
-4. Tulis `docs/kasus_atm.md`, gambar `docs/figures/kasus_*`, perbarui `docs/alur_presentasi.md` agar berpusat
-   pada kasus nyata; perbarui README/CLAUDE.md; commit & push.
+**Catatan teknis**
+- Run final pertama terhenti >1 jam karena berbarengan dengan proses lain (CPU berebut). Saat dijalankan
+  sendirian: 13.7 menit (Local 1.5, FedAvg 3, FedProx 3.5, Clustered 3, Central 1.7 menit).
+- `build_notebooks.py` menulis ulang semua notebook. Notebook 01–08 dikembalikan dengan `git checkout`.
+
+**Langkah berikutnya (opsional):** latihan presentasi/demo; bila ada waktu: kalender acara sebagai input,
+data ATM Indonesia, privasi formal (DP-FedAvg).
 
 ---
 

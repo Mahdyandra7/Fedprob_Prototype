@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -112,6 +113,7 @@ def plot_cum_fan(res: ATMCaseResult, atm: int, week: int, method: str | None = N
     ax.plot(days, np.cumsum(res.data.y[t + 1: t + 1 + q.shape[0], atm]), color=ACTUAL, marker="o", ms=3, label="aktual")
     ax.set_title(f"{a.name} ({res.bank_name(a.bank)}), minggu {days[0].date()}")
     ax.set_ylabel("penarikan kumulatif (unit kas)")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
     ax.legend(fontsize=8, loc="upper left")
     return ax
 

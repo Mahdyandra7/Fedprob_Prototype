@@ -16,7 +16,19 @@ Karena data antar bank bersifat rahasia, prototipe ini memakai **data simulasi**
 fiktif (tren, pola mingguan, gajian, Lebaran, faktor pasar bersama, shock, kelompok bank). Keuntungannya,
 distribusi sebenarnya diketahui (*Oracle*), sehingga kejujuran interval prediksi bisa diuji dengan tepat.
 
-## Temuan utama
+Komponen terbaik dari simulasi lalu diterapkan pada **data riil** sebagai alat end-to-end:
+**KasPintar**, rekomendasi pengisian kas ATM (data NN5, 111 ATM). Lihat [`docs/kasus_atm.md`](docs/kasus_atm.md).
+
+## Studi kasus data riil: KasPintar
+| Hasil (uji 23 minggu × 111 ATM, target 95%) | Angka kunci |
+|---|---|
+| Kehabisan kas: aturan praktis ×1.2 vs KasPintar (FedAvg + ACI) | 11.4% → **5.4%** |
+| Uang menganggur pada tingkat kehabisan yang sama | 29.3% → **20.0%** (−32%) |
+| Minggu belanja Natal (15 Des 1997), ATM kehabisan | 75% → **6%** |
+| Bank baru (histori 12 minggu): CRPS Local → federated | 1.592 → **0.319** (−80%) |
+| Coverage target 95%: tanpa ACI → ACI per bank | 88.9% → **94.3%** |
+
+## Temuan utama (simulasi)
 | # | Temuan | Angka kunci |
 |---|---|---|
 | 1 | Federasi paling menolong bank dengan data sedikit | CRPS bank kecil 0.215 → 0.156 (−27%), setara data digabung (0.154) |
@@ -38,6 +50,9 @@ Rincian, hasil negatif, dan keterbatasan ada di [`PROGRESS.md`](PROGRESS.md). Al
 | `06_conformal` | CQR & ACI, termasuk hasil negatif koreksi bias |
 | `07_heterogenitas` | FedProx (sweep mu) & Clustered FL |
 | `08_diffusion` | diffusion federated, skenario jalur, metrik risiko tingkat-jalur |
+| `09_kasus_atm_data` | studi kasus: masalah ATM, eksplorasi data NN5, pembagian bank |
+| `10_kasus_atm_model` | forecaster kumulatif federated, seleksi model, ACI per bank |
+| `11_kasus_atm_keputusan` | backtest kebijakan isi, trade-off, minggu Natal, bank baru, biaya |
 
 ## Metode
 | Metode | Berbagi data? | Keterangan |
@@ -58,20 +73,31 @@ python -m venv .venv
 .venv\Scripts\activate            # Windows
 pip install -r requirements.txt   # sekaligus memasang paket fedprob (editable)
 
-python -m pytest -q                       # sanity check (16 test)
-streamlit run app/dashboard.py            # dashboard demo
+python -m pytest -q                       # sanity check (25 test)
+streamlit run app/dashboard.py            # dashboard demo (simulasi)
+streamlit run app/kaspintar.py            # alat operator kas ATM (data riil NN5)
 jupyter lab notebooks/                    # notebook tahapan
 python scripts/export_figures.py          # gambar presentasi -> docs/figures/
+python scripts/export_figures.py --kasus  # gambar studi kasus ATM
 ```
+Data NN5 diunduh otomatis ke `data/raw/` saat pertama kali dipakai. Pipeline kasus ATM ~14 menit di CPU.
 Eksekusi seluruh notebook dari nol membutuhkan ~1 jam di CPU (hasil di-cache di `results/`).
 
 ## Struktur
 ```
 src/fedprob/   simulator, skenario, model (kuantil, diffusion), federated (FedAvg/FedProx/clustered),
                conformal, metrik, eksperimen, plot
-notebooks/     01-08 (dibangkitkan dari scripts/build_notebooks.py)
-app/           dashboard Streamlit
-docs/          alur presentasi & gambar
+  realdata/    pemuat data NN5
+  cash/        kebijakan isi ATM, backtest, pipeline & laporan KasPintar
+notebooks/     01-11 (dibangkitkan dari scripts/build_notebooks.py)
+app/           dashboard.py (simulasi), kaspintar.py (kasus ATM)
+docs/          alur presentasi, studi kasus ATM, gambar
 tests/         unit test
 results/       cache hasil eksperimen (tidak di-commit)
 ```
+
+## Atribusi data
+Studi kasus memakai **NN5 Daily Dataset** (kompetisi forecasting NN5) dari Monash Time Series Forecasting
+Archive: Godahewa dkk. (2021), Zenodo record [4656110](https://zenodo.org/records/4656110), lisensi
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Data diimputasi (nilai hilang/nol) dan ATM dibagi
+ke bank fiktif. Data mentah tidak disertakan di repo.

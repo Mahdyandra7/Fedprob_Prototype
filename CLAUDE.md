@@ -15,8 +15,9 @@ Keputusan yang sudah diambil pemilik (jangan ditanyakan ulang):
 - Output = notebook bertahap (bahasa Indonesia) + dashboard Streamlit untuk demo presentasi.
 - Tenggat presentasi belum pasti, jadi pengembangan dilakukan bertahap.
 - Progres harus selalu dicatat di `PROGRESS.md`, di-commit, dan di-push ke GitHub.
-- **Tahap berikutnya (diminta pemilik):** uji pada **data riil open-source** yang mirip (time series
-  multi-entitas; tidak harus data bank).
+- **Studi kasus data riil (tahap 10, selesai):** "KasPintar", rekomendasi pengisian kas ATM pada data NN5
+  (111 ATM Inggris, CC BY 4.0) → 6 bank fiktif, Zeta = bank baru. Ini **inti presentasi wawancara**;
+  simulasi diposisikan sebagai laboratorium pemilihan model. Ringkasan: `docs/kasus_atm.md`.
 
 ## Struktur
 ```
@@ -39,11 +40,19 @@ src/fedprob/
                       path_min_metrics, independent_paths)
   experiment.py       run_experiment(scenario, methods) -> ExperimentResult; versi cached
   plots.py            matplotlib (notebook) & plotly (dashboard), termasuk plot_paths
-notebooks/01..08      dibangkitkan dari scripts/build_notebooks.py
-scripts/export_figures.py  gambar presentasi -> docs/figures/
-docs/alur_presentasi.md    alur slide + persiapan tanya-jawab
-app/dashboard.py      demo Streamlit (5 tab)
-tests/                test_core.py, test_extensions.py (16 test)
+  realdata/nn5.py     unduh NN5 (Zenodo, cek MD5) -> data/raw/, parser .tsf, imputasi, libur UK, ATM -> 6 bank
+  cash/policy.py      aturan praktis, backtest siklus mingguan (CYCLE=7), biaya ilustratif
+  cash/pipeline.py    run_atm_case_cached: target kumulatif, QuantileMLP(residual=False, 9 kuantil),
+                      kandidat federated dipilih via CRPS validasi, ACI satu sisi digabung per bank
+                      (conformal.aci_upper_pooled). Cache results/atm_<hash>.pkl (CACHE_VERSION)
+  cash/report.py      laporan Senin, trade-off, plot fan kumulatif, kehabisan per minggu
+notebooks/01..11      dibangkitkan dari scripts/build_notebooks.py (09-11 = kasus ATM)
+scripts/export_figures.py  gambar presentasi -> docs/figures/ (--kasus untuk kasus_*.png)
+docs/alur_presentasi.md    alur slide (berpusat pada kasus ATM) + persiapan tanya-jawab
+docs/kasus_atm.md          studi kasus: masalah -> solusi -> hasil -> keterbatasan
+app/dashboard.py      demo Streamlit simulasi (5 tab)
+app/kaspintar.py      alat operator kas ATM (4 tab)
+tests/                test_core.py, test_extensions.py, test_atm.py (25 test)
 ```
 
 ## Konvensi
@@ -58,6 +67,10 @@ tests/                test_core.py, test_extensions.py (16 test)
 - Skenario lama harus tetap identik: efek kelompok memakai RNG terpisah (`seed + 1000`).
 - Komentar & teks notebook berbahasa Indonesia, nama kode berbahasa Inggris.
 - Notebook: edit `scripts/build_notebooks.py`, bangkitkan ulang, lalu eksekusi.
+  **Perhatian:** skrip menulis ulang SEMUA notebook (output hilang). Kembalikan yang tidak diubah dengan
+  `git checkout -- notebooks/<nama>.ipynb`.
+- Kasus ATM: metrik pada skala kumulatif ternormalisasi per ATM (1 unit = permintaan harian rata-rata).
+  Nama kebijakan tambahan: `aturan_praktis`; label via `cash.pipeline.label(m)`.
 
 ## Perintah
 ```
@@ -66,9 +79,13 @@ python -m pytest -q
 python scripts/build_notebooks.py
 jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=7200 notebooks/*.ipynb
 python scripts/export_figures.py
+python scripts/export_figures.py --kasus
 streamlit run app/dashboard.py
+streamlit run app/kaspintar.py
 ```
-Waktu: eksperimen default ~3 menit/skenario; diffusion ~4 menit; seluruh notebook dari nol ~1 jam.
+Waktu: eksperimen default ~3 menit/skenario; diffusion ~4 menit; seluruh notebook dari nol ~1 jam;
+pipeline kasus ATM ~14 menit. Jalankan training berat **sendirian**: bila berbarengan dengan proses lain
+(notebook/streamlit), torch berebut CPU dan bisa >4x lebih lambat.
 
 ## Lingkungan
 Windows, Python 3.14 (venv `.venv`, torch 2.14 CPU), GPU GTX 1650 (tidak dipakai; model kecil).
