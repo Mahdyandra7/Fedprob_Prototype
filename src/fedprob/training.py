@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from .data.windows import ClientData, Split
-from .models.quantile_net import QuantileMLP, pinball_loss
+from .models.quantile_net import QuantileMLP
 
 
 def set_seed(seed: int) -> None:
@@ -54,7 +54,7 @@ def train_epochs(
     for _ in range(epochs):
         for xh, xc, y in loader:
             opt.zero_grad()
-            loss = pinball_loss(model(xh, xc), y, model.q)
+            loss = model.training_loss(xh, xc, y)
             if ref is not None:
                 prox = sum(((p - ref[n]) ** 2).sum() for n, p in model.named_parameters())
                 loss = loss + 0.5 * mu * prox
@@ -70,8 +70,8 @@ def predict(model: QuantileMLP, split: Split) -> np.ndarray:
     """Prediksi kuantil (n, H, Q) di skala ternormalisasi."""
     model.eval()
     if len(split) == 0:
-        return np.zeros((0, model.horizon, model.n_q), np.float32)
-    return model(torch.from_numpy(split.x_hist), torch.from_numpy(split.x_cal)).numpy()
+        return np.zeros((0, model.horizon, len(model.quantiles)), np.float32)
+    return model.predict_quantiles(torch.from_numpy(split.x_hist), torch.from_numpy(split.x_cal)).numpy()
 
 
 @torch.no_grad()
@@ -79,8 +79,7 @@ def split_loss(model: QuantileMLP, split: Split) -> float:
     if len(split) == 0:
         return float("nan")
     model.eval()
-    pred = model(torch.from_numpy(split.x_hist), torch.from_numpy(split.x_cal))
-    return float(pinball_loss(pred, torch.from_numpy(split.y), model.q))
+    return float(model.eval_loss(torch.from_numpy(split.x_hist), torch.from_numpy(split.x_cal), torch.from_numpy(split.y)))
 
 
 def weighted_val_loss(model: QuantileMLP, clients: list[ClientData]) -> float:
@@ -105,11 +104,12 @@ class TrainResult:
     best_epoch: int = 0
 
 
-def train_with_early_stopping(clients: list[ClientData], cfg: TrainConfig = TrainConfig()) -> TrainResult:
+def train_with_early_stopping(clients: list[ClientData], cfg: TrainConfig = TrainConfig(), model_fn=None) -> TrainResult:
     """Latih satu model pada data gabungan `clients` (1 klien = Local-only,
-    semua klien = Centralized). Pilih epoch terbaik berdasarkan loss validasi."""
+    semua klien = Centralized). Pilih epoch terbaik berdasarkan loss validasi.
+    `model_fn` opsional untuk memakai arsitektur lain (mis. model diffusion)."""
     set_seed(cfg.seed)
-    model = QuantileMLP(hidden=cfg.hidden)
+    model = model_fn() if model_fn is not None else QuantileMLP(hidden=cfg.hidden)
     loader = make_loader([c.train for c in clients], cfg.batch_size, seed=cfg.seed)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     best, best_state, best_epoch, wait = float("inf"), None, 0, 0

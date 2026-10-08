@@ -54,11 +54,15 @@ def average_weights(states: list[dict], weights: list[float]) -> dict:
     }
 
 
-def run_federated(clients: list[ClientData], cfg: FedConfig = FedConfig(), callback=None) -> FedResult:
+def run_federated(clients: list[ClientData], cfg: FedConfig = FedConfig(), callback=None, model_fn=None, init_state: dict | None = None) -> FedResult:
     """Jalankan FedAvg/FedProx. Model global terbaik dipilih dari loss validasi
-    (rata-rata tertimbang dari loss validasi yang dilaporkan tiap bank)."""
+    (rata-rata tertimbang dari loss validasi yang dilaporkan tiap bank).
+
+    `model_fn` opsional untuk arsitektur lain; `init_state` untuk melanjutkan dari bobot tertentu."""
     set_seed(cfg.seed)
-    global_model = QuantileMLP(hidden=cfg.hidden)
+    global_model = model_fn() if model_fn is not None else QuantileMLP(hidden=cfg.hidden)
+    if init_state is not None:
+        global_model.load_state_dict(init_state)
     participants = [c for c in clients if len(c.train) > 0]
     loaders = [make_loader([c.train], cfg.batch_size, seed=cfg.seed + i) for i, c in enumerate(participants)]
 

@@ -55,6 +55,16 @@ class QuantileMLP(nn.Module):
             [median[..., None] - down, median[..., None], median[..., None] + up], dim=-1
         )
 
+    # Antarmuka yang dipakai loop training/federated (sama dengan model diffusion)
+    def training_loss(self, x_hist, x_cal, y):
+        return pinball_loss(self(x_hist, x_cal), y, self.q)
+
+    def eval_loss(self, x_hist, x_cal, y):
+        return self.training_loss(x_hist, x_cal, y)
+
+    def predict_quantiles(self, x_hist, x_cal):
+        return self(x_hist, x_cal)
+
 
 def pinball_loss(pred: torch.Tensor, y: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """pred: (B, H, Q), y: (B, H), q: (Q,)"""
