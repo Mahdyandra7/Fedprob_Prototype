@@ -6,11 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from . import QUANTILES
+from . import BANDS, QUANTILES
 from .data.simulator import SimulationResult
 
-# Pasangan kuantil -> pita interval (lebar ke sempit)
-BANDS = [(0.05, 0.95, "90%"), (0.10, 0.90, "80%"), (0.25, 0.75, "50%")]
 MAIN = "#2f6fdf"
 ACTUAL = "#222222"
 
@@ -168,4 +166,52 @@ def plotly_history(histories: dict[str, list[dict]], key: str = "val_loss"):
         x = df["round"] if "round" in df else df["epoch"]
         fig.add_trace(go.Scatter(x=x, y=df[key], name=name, mode="lines+markers"))
     fig.update_layout(xaxis_title="ronde", yaxis_title=key, height=350, margin=dict(l=10, r=10, t=30, b=10))
+    return fig
+
+
+def _path_stress(paths: np.ndarray, worst_frac: float = 0.05) -> np.ndarray:
+    """Indeks jalur 'skenario stres': `worst_frac` jalur dengan titik terendah paling rendah."""
+    n_worst = max(1, int(round(worst_frac * len(paths))))
+    return np.argsort(paths.min(axis=1))[:n_worst]
+
+
+def plot_paths(sim: SimulationResult, bank: int, origin: int, paths: np.ndarray, history_days: int = 42,
+               ax=None, title: str | None = None, worst_frac: float = 0.05):
+    """Sampel jalur masa depan (skala asli) dari satu origin + sorotan skenario stres."""
+    ax = ax or plt.subplots(figsize=(10, 4))[1]
+    H = paths.shape[1]
+    hist = slice(origin - history_days + 1, origin + 1)
+    fut = sim.dates[origin + 1: origin + 1 + H]
+    for p in paths:
+        ax.plot(fut, p, color=MAIN, alpha=0.08, lw=0.8)
+    for i in _path_stress(paths, worst_frac):
+        ax.plot(fut, paths[i], color="#d62728", alpha=0.7, lw=1)
+    ax.plot(sim.dates[hist], sim.y[hist, bank], color=ACTUAL, lw=1.2, label="histori")
+    ax.plot(fut, sim.y[origin + 1: origin + 1 + H, bank], color=ACTUAL, lw=1.5, ls="--", label="aktual")
+    ax.plot([], [], color=MAIN, label="sampel jalur")
+    ax.plot([], [], color="#d62728", label=f"{worst_frac:.0%} skenario terburuk")
+    ax.set_title(title or f"{sim.banks[bank].name}: skenario masa depan")
+    ax.legend(fontsize=8, loc="upper left")
+    return ax
+
+
+def plotly_paths(sim: SimulationResult, bank: int, origin: int, paths: np.ndarray, history_days: int = 42,
+                 worst_frac: float = 0.05, title: str | None = None):
+    import plotly.graph_objects as go
+
+    H = paths.shape[1]
+    fut = sim.dates[origin + 1: origin + 1 + H]
+    hist = slice(origin - history_days + 1, origin + 1)
+    fig = go.Figure()
+    for k, p in enumerate(paths):
+        fig.add_trace(go.Scatter(x=fut, y=p, mode="lines", line=dict(color="rgba(47,111,223,0.12)", width=1),
+                                 hoverinfo="skip", showlegend=k == 0, name="sampel jalur"))
+    for k, i in enumerate(_path_stress(paths, worst_frac)):
+        fig.add_trace(go.Scatter(x=fut, y=paths[i], mode="lines", line=dict(color="rgba(214,39,40,0.7)", width=1),
+                                 showlegend=k == 0, name=f"{worst_frac:.0%} skenario terburuk"))
+    fig.add_trace(go.Scatter(x=sim.dates[hist], y=sim.y[hist, bank], line=dict(color=ACTUAL, width=2), name="histori"))
+    fig.add_trace(go.Scatter(x=fut, y=sim.y[origin + 1: origin + 1 + H, bank],
+                             line=dict(color=ACTUAL, width=2, dash="dash"), name="aktual"))
+    fig.update_layout(title=title or f"{sim.banks[bank].name}: skenario masa depan", height=420,
+                      margin=dict(l=10, r=10, t=40, b=10))
     return fig

@@ -73,3 +73,63 @@ def reliability(y_true, q_pred, quantiles=QUANTILES) -> pd.DataFrame:
     Model terkalibrasi sempurna berada di garis diagonal (observed == q)."""
     obs = [(y_true <= q_pred[..., i]).mean() for i in range(len(quantiles))]
     return pd.DataFrame({"nominal": quantiles, "observed": obs})
+
+
+# ---------------------------------------------------------------------------
+# Metrik tingkat-jalur (butuh sampel jalur, mis. dari model diffusion)
+# ---------------------------------------------------------------------------
+
+def crps_samples(samples: np.ndarray, y: np.ndarray) -> float:
+    """CRPS dari sampel: E|X - y| - 0.5 E|X - X'|. samples (n, S), y (n,)."""
+    s = np.sort(samples, axis=1)
+    S = s.shape[1]
+    term1 = np.abs(s - y[:, None]).mean(axis=1)
+    # E|X - X'| untuk sampel terurut: (2 / S^2) * sum_i (2i - S - 1) x_(i)
+    w = 2 * np.arange(1, S + 1) - S - 1
+    term2 = (s * w).sum(axis=1) * 2 / S**2
+    return float((term1 - 0.5 * term2).mean())
+
+
+def path_min_metrics(samples: np.ndarray, y_future: np.ndarray, last: np.ndarray, drop: float = 1.0) -> dict:
+    """Evaluasi pertanyaan risiko tingkat-jalur untuk tiap origin:
+
+    - **titik terendah** dalam H hari ke depan: CRPS & coverage 80%
+    - **peristiwa turun**: apakah saldo pernah < (nilai hari ini - `drop`)?
+      (drop=1.0 berarti turun 5% dari saldo rata-rata). Dinilai dengan Brier score.
+
+    samples (n, S, H), y_future (n, H), last (n,) -- semua skala ternormalisasi.
+    """
+    smin = samples.min(axis=2)  # (n, S)
+    ymin = y_future.min(axis=1)
+    lo, hi = np.quantile(smin, [0.1, 0.9], axis=1)
+    p_event = (smin < (last[:, None] - drop)).mean(axis=1)
+    event = (ymin < last - drop).astype(float)
+    return {
+        "CRPS_min": crps_samples(smin, ymin),
+        "Coverage80_min": float(((ymin >= lo) & (ymin <= hi)).mean()),
+        "Brier_turun": float(((p_event - event) ** 2).mean()),
+        "P_turun_pred": float(p_event.mean()),
+        "Frek_turun_aktual": float(event.mean()),
+    }
+
+
+def independent_paths(q_pred: np.ndarray, n_samples: int = 200, quantiles=QUANTILES, seed: int = 0) -> np.ndarray:
+    """Cara *naif* membuat jalur dari forecast kuantil: tarik nilai tiap hari secara
+    **independen** dari distribusi marginalnya (interpolasi antar kuantil, ekor
+    diekstrapolasi linear). Ini mengabaikan ketergantungan antar hari, dan menjadi
+    pembanding untuk menunjukkan mengapa jalur bersama (diffusion) diperlukan.
+    q_pred (n, H, Q) -> (n, S, H)."""
+    rng = np.random.default_rng(seed)
+    q = np.asarray(quantiles)
+    # perluas ke kuantil 0.005 & 0.995 dengan ekstrapolasi linear
+    lo = q_pred[..., :1] - (q_pred[..., 1:2] - q_pred[..., :1]) * (q[0] - 0.005) / (q[1] - q[0])
+    hi = q_pred[..., -1:] + (q_pred[..., -1:] - q_pred[..., -2:-1]) * (0.995 - q[-1]) / (q[-1] - q[-2])
+    grid = np.concatenate([[0.005], q, [0.995]])
+    vals = np.concatenate([lo, q_pred, hi], axis=-1)  # (n, H, Q+2)
+    n, H, _ = q_pred.shape
+    u = rng.uniform(0.005, 0.995, size=(n, n_samples, H))
+    out = np.empty((n, n_samples, H), dtype=np.float32)
+    for i in range(n):
+        for h in range(H):
+            out[i, :, h] = np.interp(u[i, :, h], grid, vals[i, h])
+    return out
