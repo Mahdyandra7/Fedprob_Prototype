@@ -5,6 +5,48 @@ Setiap sesi baru: baca `CLAUDE.md` lalu entri teratas di sini.
 
 ---
 
+## 2026-10-08 · Tahap 10: Studi kasus data riil "KasPintar" (SEDANG BERJALAN, dijeda)
+
+**Permintaan pemilik:** untuk wawancara, tampilkan penerapan pada **data riil** sebagai satu kasus end-to-end
+(masalah → alat → hasil), memakai model terbaik saja. Rencana disetujui: kasus **pengisian kas ATM**.
+Detail rencana: lihat bagian "Kasus" di bawah dan `docs/` (belum ditulis).
+
+**Kasus:** bank mengisi ATM tiap Senin; isi terlalu sedikit → ATM kosong, terlalu banyak → uang menganggur.
+Pertanyaan: isi berapa agar peluang kehabisan ≤ 5% dengan uang menganggur minimal?
+Data: **NN5** (111 ATM Inggris, harian, 1996-03-18 s/d 1998-05-17, 791 hari), Zenodo 4656110, CC BY 4.0,
+diunduh ke `data/raw/nn5.zip` (di-.gitignore). 111 ATM → 6 bank fiktif (30/30/17/17/9/8); Bank Zeta =
+bank baru (histori 84 hari). Split: val 84 hari (mulai 1997-09-08), uji 168 hari (mulai 1997-12-01, 23 siklus
+mingguan, termasuk Natal & Paskah).
+
+**Sudah dikerjakan (ter-commit):**
+- `realdata/nn5.py` (unduh + MD5, parser .tsf, imputasi hilang/nol 2.4%, hari libur UK, pembagian bank)
+- `data/windows.py` direfactor: `build_series_data` (generik), `target="cumsum"`, `merge_clients`,
+  `calendar_features(event=...)`. Data simulasi terverifikasi **identik** dengan cache lama.
+- `QuantileMLP(residual=False)` untuk target kumulatif.
+- `conformal.aci_upper` (satu sisi per seri) & `aci_upper_pooled` (satu sisi, skor digabung per bank).
+- `cash/policy.py` (aturan praktis, backtest, biaya), `cash/pipeline.py` (`run_atm_case_cached`,
+  seleksi model via CRPS validasi, ACI per bank), `cash/report.py` (laporan Senin, trade-off, plot).
+- `app/kaspintar.py` (dashboard operator kas, 4 tab) -- **belum di-smoke-test**.
+- Notebook 09–11 sudah ada di `scripts/build_notebooks.py` -- **belum dibangkitkan/dieksekusi**.
+- Test: `tests/test_atm.py` (9 test). Total 25 test lolos.
+
+**Hasil sementara (run pertama, sebelum ACI per bank jadi default):**
+- CRPS validasi (total 7 hari): central 0.375, **fedavg 0.379**, clustered 0.384, fedprox_ft 0.391,
+  fedprox 0.402, local 0.426, seasonal naive 0.520 → model terpilih **FedAvg** (beda dengan simulasi: FedProx).
+- Clustered FL: tidak ada kelompok (silhouette 0.14 < 0.3).
+- Backtest target 95%: aturan praktis x1.2 → kehabisan 11.4%, menganggur 21.3%; FedAvg tanpa ACI → 11.0% / 15.2%;
+  **FedAvg + ACI per bank → 5.4% / 20.0%**; ACI per ATM **gagal** (98%: kehabisan naik ke 10–15%, sampel kecil).
+- Bank baru (Zeta), target 95%: Local 35.3% kehabisan vs FedProx 3.3%.
+
+**Langkah berikutnya saat dilanjutkan:**
+1. Jalankan `run_atm_case_cached(cache_dir='results')` (~15 menit; versi cache 2) dan cek `res.system == 'fedavg+aci'`.
+2. `python scripts/build_notebooks.py`, lalu eksekusi notebook 09–11; perbaiki error bila ada.
+3. Smoke test `app/kaspintar.py` (AppTest) dan jalankan `streamlit run app/kaspintar.py`.
+4. Tulis `docs/kasus_atm.md`, gambar `docs/figures/kasus_*`, perbarui `docs/alur_presentasi.md` agar berpusat
+   pada kasus nyata; perbarui README/CLAUDE.md; commit & push.
+
+---
+
 ## 2026-10-08 · Tahap 6–9: Conformal, heterogenitas, diffusion, bahan presentasi (selesai)
 
 **Dikerjakan**
