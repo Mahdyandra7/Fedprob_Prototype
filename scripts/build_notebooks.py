@@ -713,6 +713,287 @@ plt.tight_layout()
 ]
 
 
+# ---------------------------------------------------------------------------
+# STUDI KASUS DATA RIIL: KasPintar (pengisian kas ATM)
+# ---------------------------------------------------------------------------
+NOTEBOOKS["09_kasus_atm_data"] = [
+    md("""
+# 09 · Studi Kasus Nyata: KasPintar, Sistem Rekomendasi Pengisian Kas ATM
+
+## Masalah
+Bank mengisi ATM secara berkala lewat jasa pengangkutan uang (*cash-in-transit*), misalnya **setiap Senin**.
+Jumlah yang diisi harus cukup sampai Senin berikutnya.
+
+| Jika diisi… | Akibatnya |
+|---|---|
+| **terlalu sedikit** | ATM kosong → nasabah kecewa, kunjungan darurat mahal, reputasi turun (di Indonesia paling terasa menjelang **Lebaran**) |
+| **terlalu banyak** | uang menganggur di mesin → biaya dana, asuransi, risiko keamanan |
+
+Praktik umum: **"rata-rata 4 minggu terakhir × 1,2"**. Ini satu angka tanpa ukuran risiko.
+Selain itu, data transaksi tiap bank **rahasia**, dan **ATM/bank baru** belum punya histori.
+
+> **Pertanyaan bisnis:** berapa uang yang harus diisi ke tiap ATM minggu ini agar peluang kehabisan
+> ≤ 5%, dengan uang menganggur seminimal mungkin?
+
+Pertanyaan ini membutuhkan ketiga hal dalam pertanyaan riset: **akurat**, **jujur soal ketidakpastian**,
+dan **belajar tanpa berbagi data**.
+
+## Data riil: NN5
+Penarikan tunai harian dari **111 ATM di Inggris** (18 Mar 1996 – 17 Mei 1998), dari kompetisi forecasting
+NN5. Sumber: Zenodo (Monash Forecasting Archive), lisensi **CC BY 4.0**. Nilai sudah diskalakan oleh
+penyelenggara, jadi di sini disebut "unit kas".
+"""),
+    code(SETUP),
+    code("""
+from fedprob.realdata.nn5 import load_nn5, holiday_effect, UK_HOLIDAYS
+d = load_nn5()
+df = d.to_frame()
+print(f"{d.y.shape[1]} ATM x {d.y.shape[0]} hari: {d.dates[0].date()} s/d {d.dates[-1].date()}")
+print(f"nilai hilang: {np.isnan(d.raw).mean():.1%}, nilai nol: {(d.raw == 0).mean():.1%} -> diimputasi (median hari sama 4 minggu terakhir)")
+df.iloc[:5, :6]
+"""),
+    md("## Pola: mingguan, hari libur, dan variasi antar ATM"),
+    code("""
+fig, axes = plt.subplots(2, 2, figsize=(13, 7))
+for j in [0, 10, 50]:
+    axes[0, 0].plot(df.index, df.iloc[:, j].rolling(7).mean(), lw=1, label=d.names[j])
+axes[0, 0].set_title("Rata-rata 7 hari, 3 ATM"); axes[0, 0].legend(fontsize=8)
+dow = df.groupby(df.index.dayofweek).mean().mean(axis=1)
+axes[0, 1].bar(["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"], dow.values, color="#2f6fdf")
+axes[0, 1].set_title("Rata-rata penarikan per hari (semua ATM)")
+s = df.loc["1997-12-01":"1998-01-10"].mean(axis=1)
+axes[1, 0].plot(s.index, s.values, marker="o", ms=3)
+axes[1, 0].axhline(df.values.mean(), color="grey", ls="--", label="rata-rata harian")
+axes[1, 0].set_title("Natal & Tahun Baru 1997: lonjakan sebelum libur"); axes[1, 0].legend(fontsize=8)
+axes[1, 0].tick_params(axis="x", rotation=45)
+wk = df.resample("W-SUN").sum().iloc[1:-1]
+axes[1, 1].hist([(df.std() / df.mean()).values, (wk.std() / wk.mean()).values], bins=20, label=["harian", "mingguan"])
+axes[1, 1].set_title("Variasi (CV) per ATM: total mingguan jauh lebih stabil"); axes[1, 1].legend()
+plt.tight_layout()
+"""),
+    md("""
+**Pengamatan:**
+- Penarikan memuncak **Kamis–Jumat** (persiapan akhir pekan). Senin dan Sabtu paling rendah.
+- **Menjelang Natal penarikan melonjak** lebih dari 2× rata-rata. Efek hari besar ini analog dengan Lebaran di Indonesia.
+- Variasi harian tinggi (CV ~40%), tetapi **total mingguan jauh lebih stabil** (CV ~15%). Karena itu sistem
+  memprediksi **total kumulatif**, bukan hanya nilai harian.
+"""),
+    md("""
+## Dari forecast ke keputusan: target kumulatif
+Karena penarikan selalu ≥ 0, total kumulatif hanya bisa naik, sehingga:
+
+$$\\text{ATM kehabisan dalam siklus} \\iff \\sum_{i=1}^{7} y_{t+i} > \\text{isi}$$
+
+Maka **isi untuk service level 95% = kuantil-95% dari total penarikan 7 hari**. Model memprediksi kuantil
+total kumulatif 1–14 hari secara langsung, dalam satuan "hari permintaan rata-rata" ATM tersebut.
+"""),
+    md("""
+## Setting federated: 6 bank fiktif
+NN5 tidak menyebut pemilik ATM, sehingga 111 ATM dibagi **acak tetapi deterministik** ke 6 bank. Setiap bank
+adalah satu klien federated, dan data ATM-nya tidak keluar dari bank. **Bank Zeta** diperlakukan sebagai
+**bank baru**: ATM-nya hanya punya histori 12 minggu sebelum periode validasi.
+"""),
+    code("""
+from fedprob.cash.pipeline import ATMConfig, build_atm_clients
+cfg = ATMConfig()
+atms, vs, ts = build_atm_clients(d, cfg)
+pd.DataFrame([{"bank": n, "jumlah ATM": s, "ukuran": u, "histori train (hari)": vs - (vs - cfg.cold_history if b == cfg.cold_bank else 0)}
+              for b, (n, s, u) in enumerate(d.banks)])
+"""),
+    code("""
+print("train   :", d.dates[0].date(), "s/d", d.dates[vs - 1].date())
+print("validasi:", d.dates[vs].date(), "s/d", d.dates[ts - 1].date(), f"({cfg.val_days} hari)")
+print("uji     :", d.dates[ts].date(), "s/d", d.dates[-1].date(), f"({cfg.test_days} hari: Natal, Tahun Baru, Paskah 1998)")
+"""),
+]
+
+NOTEBOOKS["10_kasus_atm_model"] = [
+    md("""
+# 10 · KasPintar: Memilih & Mengkalibrasi Model
+
+Kandidat model diambil dari temuan tahap simulasi, lalu **diputuskan oleh data riil**:
+
+| Komponen | Kandidat | Cara memilih |
+|---|---|---|
+| Forecaster | QuantileMLP (9 kuantil, 5%–99%) untuk total kumulatif 1–14 hari | – |
+| Kolaborasi | Local, **FedAvg**, FedProx, FedProx+fine-tune, Clustered FL, (Centralized = batas atas) | **CRPS validasi** |
+| Kejujuran | ACI satu sisi per ATM vs **per bank** | coverage di periode uji |
+
+Diffusion **tidak dipakai**: keputusan isi cukup dijawab kuantil total kumulatif, dan di simulasi diffusion
+federated meremehkan risiko ekor.
+"""),
+    code(SETUP),
+    code("""
+from fedprob.cash.pipeline import run_atm_case_cached, label, Q_ATM, SERVICE_LEVELS
+from fedprob.cash.report import plot_cum_fan
+from fedprob.conformal import aci_upper
+res = run_atm_case_cached(cache_dir="../results", verbose=False)
+print("Sistem KasPintar memakai:", label(res.system))
+"""),
+    md("## Seleksi model: CRPS validasi vs uji (total 7 hari, lebih kecil lebih baik)"),
+    code("""
+test_crps = res.metrics.groupby("method", sort=False)["CRPS"].mean()
+tab = pd.DataFrame({"CRPS validasi": pd.Series(res.extras["val_crps"]), "CRPS uji": test_crps})
+tab.rename(index=label).style.format("{:.3f}").highlight_min(axis=0, color="#cde7cd")
+"""),
+    md("""
+**Pelajaran:** di simulasi FedProx yang terbaik, tetapi di data riil **FedAvg** terbaik di antara metode federated
+(validasi maupun uji), dan hampir menyamai Centralized. Simulasi memberi hipotesis, data riil yang memutuskan.
+Clustered FL tidak menemukan struktur kelompok (silhouette < 0.3), sehingga perilakunya sama dengan FedAvg.
+"""),
+    code("""
+print("silhouette Clustered FL:", {k: round(v, 2) for k, v in res.extras.get("cluster_silhouette", {}).items()})
+"""),
+    md("## Siapa yang paling diuntungkan kolaborasi? CRPS per bank"),
+    code("""
+m = res.metrics[res.metrics.method.isin(["local", "fedavg", "central"])]
+piv = m.groupby(["bank", "method"]).CRPS.mean().unstack()[["local", "fedavg", "central"]]
+piv["perbaikan FedAvg vs Local"] = 1 - piv["fedavg"] / piv["local"]
+piv.style.format({"local": "{:.3f}", "fedavg": "{:.3f}", "central": "{:.3f}", "perbaikan FedAvg vs Local": "{:.0%}"})
+"""),
+    md("## Kalibrasi: apakah kuantil atas bisa dipercaya?"),
+    md("""
+Proporsi total 7 hari aktual ≤ kuantil-s (semua origin harian periode uji). Idealnya sama dengan s.
+"""),
+    code("""
+sel = res.extras["selected"]
+cal = res.metrics[res.metrics.method == sel][[c for c in res.metrics.columns if c.startswith("atas")]].mean()
+pd.DataFrame({"tanpa ACI": [cal[f"atas{int(l*100)}"] for l in SERVICE_LEVELS],
+              "ACI per bank": [cal[f"atas{int(l*100)}_aci"] for l in SERVICE_LEVELS]},
+             index=[f"{l:.0%}" for l in SERVICE_LEVELS]).style.format("{:.1%}")
+"""),
+    md("""
+### Hasil negatif: ACI per ATM gagal
+ACI per ATM hanya punya ~30 skor terbaru yang saling tumpang tindih (≈ 4 minggu independen). Kuantil 98% tidak
+mungkin diestimasi dari data sesedikit itu. Menggabungkan skor **semua ATM dalam satu bank** (data tetap di
+bank) menyelesaikan masalah ini.
+"""),
+    code("""
+from fedprob.cash.policy import CYCLE
+rows = []
+for lv in (0.95, 0.98):
+    qi = Q_ATM.index(lv)
+    per_atm = [aci_upper(a.val.y, pv[..., qi], a.val.origins, a.test.y, pt[..., qi], a.test.origins, lv)
+               for a, pv, pt in zip(res.atms, res.preds_val[sel], res.preds[sel])]
+    cov = lambda adj: np.mean([(a.test.y[:, CYCLE - 1] <= q[:, CYCLE - 1]).mean() for a, q in zip(res.atms, adj)])
+    rows.append({"target": f"{lv:.0%}", "tanpa ACI": cov([p[..., qi] for p in res.preds[sel]]),
+                 "ACI per ATM": cov(per_atm), "ACI per bank": cov(res.aci[sel][lv])})
+pd.DataFrame(rows).set_index("target").style.format("{:.1%}")
+"""),
+    md("## Contoh forecast: total penarikan kumulatif 14 hari"),
+    code("""
+fig, axes = plt.subplots(1, 2, figsize=(14, 4.2))
+plot_cum_fan(res, 0, 2, ax=axes[0])     # minggu biasa
+plot_cum_fan(res, 0, 3, ax=axes[1])     # minggu menjelang Natal
+plt.tight_layout()
+"""),
+    md("""
+Pita biru adalah rentang kemungkinan total penarikan. Garis putus-putus biru adalah **isi rekomendasi**
+(kuantil 95% total 7 hari setelah ACI), garis titik oranye adalah aturan praktis, dan garis hitam adalah
+penarikan aktual. Pada minggu menjelang Natal, rentangnya otomatis melebar dan rekomendasi isi naik.
+"""),
+]
+
+NOTEBOOKS["11_kasus_atm_keputusan"] = [
+    md("""
+# 11 · KasPintar: Dari Forecast ke Keputusan (Backtest 23 Minggu)
+
+Simulasi operasional: setiap Minggu malam sistem membuat rekomendasi, Senin pagi ATM diisi, lalu dicek
+apakah ATM kehabisan sebelum Senin berikutnya. Periode uji: **Des 1997 – Mei 1998**, termasuk Natal, Tahun Baru,
+dan Paskah.
+
+| Kebijakan | Keterangan |
+|---|---|
+| Aturan praktis | rata-rata 4 minggu terakhir × faktor (1,2 = praktik umum) |
+| Seasonal naive | "minggu lalu" + kuantil residual |
+| Local | QuantileMLP per bank, tanpa kolaborasi |
+| FedAvg | federated, tanpa kalibrasi |
+| **KasPintar** | FedAvg + ACI per bank |
+| Centralized + ACI | batas atas (data digabung, tidak realistis) |
+"""),
+    code(SETUP),
+    code("""
+from fedprob.cash.pipeline import run_atm_case_cached, label
+from fedprob.cash.report import (idle_at_same_stockout, plot_cum_fan, plot_tradeoff, tradeoff_curve,
+                                 weekly_report, weekly_stockout)
+res = run_atm_case_cached(cache_dir="../results", verbose=False)
+SYS = res.system
+P = ["aturan_praktis", "seasonal_naive", "local", "fedavg", SYS, "central+aci"]
+"""),
+    md("## Hasil backtest pada target service level 95%"),
+    code("""
+bt = pd.DataFrame({label(m): res.backtest(m, level=0.95, factor=1.2) for m in P}).T
+bt[["kehabisan_%", "menganggur_%", "isi_rata2", "kurang_rata2"]].style.format("{:.1f}")
+"""),
+    md("""
+- **kehabisan_%**: persentase siklus (ATM × minggu) di mana ATM kosong sebelum pengisian berikutnya. Target ≤ 5%.
+- **menganggur_%**: total uang yang tersisa di mesin, relatif terhadap total penarikan.
+"""),
+    md("## Trade-off: kehabisan vs uang menganggur"),
+    code("""
+fig, ax = plt.subplots(figsize=(8, 5))
+plot_tradeoff(res, ["aturan_praktis", "local", "fedavg", SYS], ax=ax)
+ax.axvline(5, color="grey", ls=":", lw=1)
+"""),
+    code("""
+cmp = idle_at_same_stockout(res, SYS, 0.95)
+print(f"Pada tingkat kehabisan yang sama ({cmp['kehabisan_%']:.1f}%):")
+print(f"  aturan praktis butuh faktor ~x{cmp['faktor_aturan_setara']:.2f} dan uang menganggur {cmp['menganggur_aturan_%']:.1f}% dari permintaan")
+print(f"  KasPintar: uang menganggur {cmp['menganggur_sistem_%']:.1f}%  ->  hemat {cmp['penghematan_relatif_%']:.0f}% uang menganggur")
+"""),
+    md("## Minggu per minggu: apa yang terjadi saat Natal & Paskah?"),
+    code("""
+ws = pd.DataFrame({label(m): weekly_stockout(res, m) for m in ["aturan_praktis", "fedavg", SYS]})
+ax = ws.plot(marker="o", figsize=(12, 4))
+for h in ["1997-12-25", "1998-04-10"]:
+    ax.axvline(pd.Timestamp(h), color="red", ls=":", lw=1)
+ax.axhline(5, color="grey", ls="--", lw=1); ax.set_ylabel("% ATM kehabisan"); ax.set_title("ATM kehabisan per minggu (garis merah: Natal, Jumat Agung)")
+"""),
+    md("## Bank baru (cold-start): manfaat kolaborasi"),
+    code("""
+rows = []
+for b in range(len(res.data.banks)):
+    atms = res.data.atms_of(b)
+    for m in ["aturan_praktis", "local+aci", SYS]:
+        r = res.backtest(m, level=0.95, atms=atms)
+        rows.append({"bank": res.bank_name(b), "kebijakan": label(m), "kehabisan_%": r["kehabisan_%"], "menganggur_%": r["menganggur_%"]})
+pd.DataFrame(rows).pivot(index="bank", columns="kebijakan").round(1)
+"""),
+    md("## Laporan Senin untuk operator kas (contoh)"),
+    code("""
+rep = weekly_report(res, bank=5, week=3)
+print("Bank Zeta, minggu", rep.attrs["minggu"])
+rep.style.format({c: "{:.1f}" for c in rep.columns if rep[c].dtype.kind == "f" and "P(" not in c}).format({"P(habis) jika aturan praktis": "{:.0%}"})
+"""),
+    md("""
+Kolom **P(habis) jika aturan praktis** menunjukkan ATM mana yang berisiko bila bank tetap memakai cara lama.
+Kolom *aktual* hanya ada di backtest; dalam operasi nyata, operator hanya melihat rekomendasi dan peluangnya.
+"""),
+    md("## Ilustrasi biaya (asumsi bisa diubah)"),
+    code("""
+from fedprob.cash.policy import total_cost
+for cof, pen in [(0.15, 30), (0.15, 60), (0.30, 30)]:
+    c = {label(m): total_cost(res.backtest(m, 0.95), cof, pen) for m in ["aturan_praktis", "local", SYS]}
+    print(f"biaya simpan {cof:.0%}/thn, penalti kehabisan {pen} unit:", {k: round(v, 2) for k, v in c.items()})
+"""),
+    md("""
+## Kesimpulan studi kasus
+*(Angka pasti lihat tabel di atas dan `PROGRESS.md`.)*
+
+1. **KasPintar menepati janjinya.** Pada target 95%, tingkat kehabisan mendekati 5%, termasuk melewati Natal dan
+   Paskah, berkat ACI per bank. Model tanpa kalibrasi dan aturan praktis kehabisan ~2× lebih sering.
+2. **Lebih efisien.** Pada tingkat kehabisan yang sama, uang menganggur jauh lebih kecil dibanding aturan praktis.
+3. **Kolaborasi paling menolong bank baru.** ATM bank Zeta (histori 12 minggu) jauh lebih jarang kehabisan
+   dibanding bila bank itu memodelkan sendiri.
+4. **Pelajaran metodologis:** (a) model terbaik di simulasi (FedProx) bukan yang terbaik di data riil (FedAvg), sehingga
+   seleksi harus berbasis validasi; (b) kalibrasi per ATM gagal karena sampel kecil, sedangkan per bank berhasil.
+
+**Keterbatasan:** data ATM Inggris 1996–1998 (bukan Indonesia), pembagian ke bank bersifat fiktif, satuan nilai
+tidak diketahui, satu siklus pengisian tetap (mingguan), dan backtest bukan uji coba operasional.
+"""),
+]
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     for name, cells in NOTEBOOKS.items():
