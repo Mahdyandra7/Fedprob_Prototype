@@ -1,0 +1,12 @@
+numpy
+pandas
+torch
+statsmodels
+matplotlib
+plotly
+streamlit
+jupyter
+nbconvert
+ipykernel
+pytest
+-e .

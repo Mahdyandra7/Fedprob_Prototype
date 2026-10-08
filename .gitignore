@@ -1,0 +1,13 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Dokumen pribadi (essay LPDP) - jangan di-push ke GitHub
+*.docx
+
+# Cache hasil training (bisa dibangkitkan ulang)
+results/*
+!results/.gitkeep
