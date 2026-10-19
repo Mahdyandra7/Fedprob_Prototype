@@ -5,6 +5,20 @@ Setiap sesi baru: baca `CLAUDE.md` lalu entri teratas di sini.
 
 ---
 
+## 2026-10-19 · Tahap 11: Slide deck & ringkasan end-to-end (selesai)
+
+**Dikerjakan**
+- Cek kesiapan: 25 test lolos, notebook 01–11 tereksekusi tanpa error, `app/kaspintar.py` & `app/dashboard.py`
+  lolos smoke test (AppTest, 0 exception).
+- Slide deck 15 slide (artifact claude.ai "KasPintar: Accurate, Honest, Private", privat) dari
+  `docs/alur_presentasi.md`, dengan gambar `docs/figures/` dan catatan pembicara di tiap slide.
+- `docs/ringkasan_end_to_end.md`: cerita satu paragraf, alur data → keputusan beserta file kodenya, glosarium,
+  temuan simulasi, angka kunci, pembagian waktu, checklist hari-H.
+
+**Berikutnya:** isi `[Nama Anda]` di slide judul, latihan dengan stopwatch, siapkan screenshot cadangan demo.
+
+---
+
 ## 2026-10-08 · Tahap 10: Studi kasus data riil "KasPintar" (selesai)
 
 **Permintaan pemilik:** untuk wawancara, tampilkan penerapan pada **data riil** sebagai satu kasus end-to-end
