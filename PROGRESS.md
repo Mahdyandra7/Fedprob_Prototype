@@ -15,6 +15,10 @@ Setiap sesi baru: baca `CLAUDE.md` lalu entri teratas di sini.
 - `docs/ringkasan_end_to_end.md`: cerita satu paragraf, alur data → keputusan beserta file kodenya, glosarium,
   temuan simulasi, angka kunci, pembagian waktu, checklist hari-H.
 
+- `docs/notebooklm/`: bahan NotebookLM. `01_prototipe_lengkap.md` (seluruh prototipe dalam prosa, termasuk
+  penerapan lain di Indonesia) + `00_PANDUAN.md` (daftar sumber, pengaturan chat, 19 prompt, Audio Overview).
+  Essay **tidak** disalin; pemilik mengunggah `LPDP_26.docx` langsung ke NotebookLM.
+
 **Berikutnya:** isi `[Nama Anda]` di slide judul, latihan dengan stopwatch, siapkan screenshot cadangan demo.
 
 ---
